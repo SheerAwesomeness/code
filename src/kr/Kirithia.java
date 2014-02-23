@@ -4321,7 +4321,9 @@ public class Kirithia extends JavaPlugin implements Listener {
 			return;
 		}
 		Material m = e.getClickedBlock().getType();
-		if (m.equals(Material.LEVER)||m.equals(Material.WOOD_BUTTON)||m.equals(Material.STONE_BUTTON)||m.equals(Material.WOOD_DOOR)||m.equals(Material.IRON_DOOR)||m.equals(Material.WOOD_PLATE)||m.equals(Material.STONE_PLATE)||m.equals(Material.IRON_PLATE)||m.equals(Material.GOLD_PLATE)||m.equals(Material.TRIPWIRE)||m.equals(Material.TRIPWIRE_HOOK)||)
+		if (m.equals(Material.LEVER)||m.equals(Material.WOOD_BUTTON)||m.equals(Material.STONE_BUTTON)||m.equals(Material.WOOD_DOOR)||m.equals(Material.IRON_DOOR)||m.equals(Material.WOOD_PLATE)||m.equals(Material.STONE_PLATE)||m.equals(Material.IRON_PLATE)||m.equals(Material.GOLD_PLATE)||m.equals(Material.TRIPWIRE)||m.equals(Material.TRIPWIRE_HOOK)){
+			//TODO other materials
+		}
 		Chunk c = e.getClickedBlock().getLocation().getChunk();
 		ChunkSnapshot cs = c.getChunkSnapshot();
 		if (e.getAction().equals(Action.RIGHT_CLICK_BLOCK)) {
