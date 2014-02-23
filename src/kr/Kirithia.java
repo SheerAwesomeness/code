@@ -5047,5 +5047,21 @@ public class Kirithia extends JavaPlugin implements Listener {
 		}, 2);
 
 	}
+	
+	public Chunks getChunkClass(){
+		return ch;
+	}
+	
+	public Towns getTownClass(){
+		return town;
+	}
+	
+	public KPlayer getKPlayerClass(){
+		return kp;
+	}
+	
+	public AdminTowns getAdminTownsClass(){
+		return at;
+	}
 
 }
