@@ -1,0 +1,15 @@
+main: kr.Kirithia
+name: Kirithia
+author: SheerAwesomeness
+version: 0.1
+permissions:
+  kirithia.admin:
+    default: op
+    description: allows access to admin commands.
+commands:
+  admin:
+  town:
+  claim:
+  cannon:
+  chunk:
+  chunks:
