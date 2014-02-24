@@ -57,16 +57,16 @@ public class Towns {
 	public Towns(String name) {
 		this.name = name;
 	}
-	
 
-	
-	public Towns(String name, String owner, String motd,
-			String modperms, String adminperms, String defaultperms,
-			String chunkmemberperms, String chunkownerperms,
-			String chunkdefaultperms, double totalxp, double level, 
-			boolean open,  List<String> chunks,
+	public Towns(String name, String owner, String motd, String modperms,
+			String adminperms, String defaultperms, String chunkmemberperms,
+			String chunkownerperms, String chunkdefaultperms, double totalxp,
+			double level, boolean open, List<String> chunks,
 			List<String> allies, List<String> enemies, List<String> members,
-			List<String> moderators, List<String> admins, HashMap<String, LinkedList<String>> chunkmembers, HashMap<String, LinkedList<String>> chunkowners, HashMap<String, Location> homes) {
+			List<String> moderators, List<String> admins,
+			HashMap<String, LinkedList<String>> chunkmembers,
+			HashMap<String, LinkedList<String>> chunkowners,
+			HashMap<String, Location> homes) {
 		this.name = name;
 		this.owner = owner;
 		this.motd = motd;
@@ -91,93 +91,92 @@ public class Towns {
 	}
 
 	public void setupTown(Towns to) {
-		
-		//this.townhomes = townhomes;
-		for (String namem: to.chunks){
+
+		// this.townhomes = townhomes;
+		for (String namem : to.chunks) {
 			whattown.put(namem, to);
 		}
-		for (String namem: to.members){
+		for (String namem : to.members) {
 			whattown.put(namem, to);
 		}
 		townmap.put(to.name.toLowerCase(), to);
 		towns.add(to.name.toLowerCase());
 	}
 
-	public List<String> getHomeNames(){
+	public List<String> getHomeNames() {
 		List<String> th = new ArrayList<String>();
-		for(String name: townhomes.keySet()){
+		for (String name : townhomes.keySet()) {
 			th.add(name);
 		}
 		return th;
 	}
-	
-	public void setHome(Location home, String name){
-		if (name==null){
+
+	public void setHome(Location home, String name) {
+		if (name == null) {
 			name = "home";
 		}
 		townhomes.put(name.toLowerCase(), home);
 	}
-	
-	public int getHomeCDTime(){
-		if (this.getLevel()<10){
+
+	public int getHomeCDTime() {
+		if (this.getLevel() < 10) {
 			return 1800;
 		}
-		if (this.getLevel()<20){
+		if (this.getLevel() < 20) {
 			return 1500;
 		}
-		if (this.getLevel()<30){
+		if (this.getLevel() < 30) {
 			return 1200;
 		}
 		return 900;
 	}
-	
-	public boolean hasHome(){
-		if (townhomes.isEmpty()){
+
+	public boolean hasHome() {
+		if (townhomes.isEmpty()) {
 			return false;
 		}
 		return true;
 	}
-	
-	public boolean anotherHome(){
+
+	public boolean anotherHome() {
 		int limit = 1;
-		if (this.getLevel()>7){
-			if (this.getLevel()<15){
+		if (this.getLevel() > 7) {
+			if (this.getLevel() < 15) {
 				limit = 2;
-			}else
-			if (this.getLevel()<22){
-				limit =3;
-			}else{
+			} else if (this.getLevel() < 22) {
+				limit = 3;
+			} else {
 				limit = 4;
 			}
 		}
-		if(this.getHomeNames().size()>=limit){
+		if (this.getHomeNames().size() >= limit) {
 			return false;
 		}
 		return true;
 	}
-	
-	public void deleteHome(String name){
-		if (name==null){
+
+	public void deleteHome(String name) {
+		if (name == null) {
 			name = "home";
-			
+
 		}
 		townhomes.remove(name.toLowerCase());
 	}
-	
-	public Location getHomeLoc(String name){
-		if (name == null){
+
+	public Location getHomeLoc(String name) {
+		if (name == null) {
 			name = "home";
 		}
-		if (townhomes.containsKey(name.toLowerCase())){
-		return townhomes.get(name.toLowerCase());
+		if (townhomes.containsKey(name.toLowerCase())) {
+			return townhomes.get(name.toLowerCase());
 		}
 		return null;
 	}
-	
-	public int getAmountofHomes(){
+
+	public int getAmountofHomes() {
 		return townhomes.size();
 	}
-	
+
 	public List<String> getTowns() {
 		return towns;
 	}
@@ -329,14 +328,14 @@ public class Towns {
 	public void deleteTown(Towns to) {
 		for (String name : towns) {
 			Towns t = whattown.get(name);
-			try{
-			t.allies.remove(name);
-			}catch(Exception e){
+			try {
+				t.allies.remove(name);
+			} catch (Exception e) {
 			}
-			try{
-				
-			t.enemies.remove(name);
-			}catch(Exception e){
+			try {
+
+				t.enemies.remove(name);
+			} catch (Exception e) {
 			}
 		}
 		for (String name : to.getMembers()) {
@@ -349,17 +348,17 @@ public class Towns {
 		to.setAdmins(null);
 		to.setDefaultPerms(null);
 		to.setOwner(null);
-		for (String coords: to.getChunks()){
+		for (String coords : to.getChunks()) {
 			whattown.remove(coords);
-			
+
 		}
 	}
 
-	public Towns (String name, String owner){
+	public Towns(String name, String owner) {
 		this.name = name;
 		this.owner = owner;
 	}
-	
+
 	public void createTown(Towns to) {
 		to.members.add(to.owner);
 		to.setMOTD("Default MOTD.");
@@ -424,29 +423,53 @@ public class Towns {
 		}
 	}
 
+	public boolean hasChunkPermission(Chunk chunk, Player player,
+			String permission) {
+		if (getOwner().equalsIgnoreCase(player.getName())){
+			return true;
+		}
+		if (hasPermission(player, "chunkaccess")){
+			return true;
+		}
+		if (getChunkMembers(chunk).contains(player.getName())) {
+			if (!getChunkMemberPerms().contains(permission)
+					&& !getChunkDefaultPerms().contains(permission)) {
+				return false;
+			}
+		} else if (getChunkOwners(chunk).contains(player.getName())) {
+			if (!getChunkOwnerPerms().contains(permission)
+					&& !getChunkDefaultPerms().contains(permission)) {
+				return false;
+			}
+		} else if (!getChunkDefaultPerms().contains(permission)) {
+			return false;
+
+		}
+		return true;
+	}
+
 	public boolean hasPermission(Player player, String permission) {
-		if (permission.equalsIgnoreCase("unclaim")){
+		if (permission.equalsIgnoreCase("unclaim")) {
 			permission = "c-u-laim";
 		}
-		if (permission.equalsIgnoreCase("sethome")){
+		if (permission.equalsIgnoreCase("sethome")) {
 			permission = "h-s-ome";
 		}
-		if (moderators.contains(player.getName())){
-				if ( !modperms.contains(permission)
-				&& !defaultperms.contains(permission)) {
-			return false;
-				}
-		} else if (admins.contains(player.getName())){
-				if( adminperms.contains(permission)
-				&& modperms.contains(permission)
-				&& defaultperms.contains(permission)) {
-			return false;
-				}
-		} else 
-			if (!defaultperms.contains(permission)
-					&& !owner.equalsIgnoreCase(player.getName())) {
+		if (moderators.contains(player.getName())) {
+			if (!modperms.contains(permission)
+					&& !defaultperms.contains(permission)) {
 				return false;
-			
+			}
+		} else if (admins.contains(player.getName())) {
+			if (adminperms.contains(permission)
+					&& modperms.contains(permission)
+					&& defaultperms.contains(permission)) {
+				return false;
+			}
+		} else if (!defaultperms.contains(permission)
+				&& !owner.equalsIgnoreCase(player.getName())) {
+			return false;
+
 		}
 		return true;
 	}
@@ -512,11 +535,9 @@ public class Towns {
 	}
 
 	public void addChunk(Towns to, String coords) {
-	to.chunks.add(coords);
+		to.chunks.add(coords);
 		whattown.put(coords, to);
 	}
-	
-
 
 	public void addChunk(Towns to, Chunk chunk) {
 		String coords = chunk.getX() + "," + chunk.getZ();
@@ -530,7 +551,7 @@ public class Towns {
 		to.chunkowners.remove(coords);
 		to.chunkmembers.remove(coords);
 	}
-	
+
 	public void removeChunk(Towns to, Chunk chunk) {
 		String coords = chunk.getX() + "," + chunk.getZ();
 		to.chunks.remove(coords);
@@ -598,7 +619,7 @@ public class Towns {
 		}
 		return null;
 	}
-	
+
 	public List<String> getChunkMembers(Chunk chunk) {
 		String coords = chunk.getX() + "," + chunk.getZ();
 		if (chunkmembers.containsKey(coords)) {
@@ -620,7 +641,7 @@ public class Towns {
 			m.add(name);
 			chunkowners.put(coords, m);
 		} else {
-			List<String> m =Arrays.asList(name);
+			List<String> m = Arrays.asList(name);
 			LinkedList<String> mn = new LinkedList<String>();
 			mn.addAll(m);
 			chunkowners.put(coords, mn);
@@ -649,7 +670,7 @@ public class Towns {
 		}
 		return null;
 	}
-	
+
 	public List<String> getChunkOwners(String coords) {
 		if (chunkowners.containsKey(coords)) {
 			return chunkowners.get(coords);
@@ -662,7 +683,7 @@ public class Towns {
 		for (String name : this.getMembers()) {
 			OfflinePlayer pl = Bukkit.getOfflinePlayer(name);
 			if (pl.isOnline()) {
-				online.add(((Player)pl));
+				online.add(((Player) pl));
 			}
 		}
 		return online;
@@ -676,7 +697,7 @@ public class Towns {
 				if (this.moderators.contains(name)
 						|| this.admins.contains(name)
 						|| this.getOwner().equalsIgnoreCase(name)) {
-					online.add(((Player)pl));
+					online.add(((Player) pl));
 				}
 			}
 		}
@@ -697,7 +718,7 @@ public class Towns {
 		}
 		return null;
 	}
-	
+
 	public Towns getTownofChunk(ChunkSnapshot chunk) {
 		String coords = chunk.getX() + "," + chunk.getZ();
 		if (whattown.containsKey(coords)) {

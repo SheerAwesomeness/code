@@ -20,7 +20,7 @@ public class AdminTowns {
 	private String message;
 	private String nopermmessage;
 	boolean silent = false;
-	private List<String> allperms = Arrays.asList("animaldmg", "animalsp", "lever", "button", "door", "pressure", "tripwire", "repeater", "chest", "furnace", "hopper", "build", "enderchest", "trapdoor");
+	private List<String> allperms = Arrays.asList("animaldmg", "animalsp", "chestview", "lever", "button", "door", "pressure", "tripwire", "repeater", "chest", "furnace", "hopper", "build", "enderchest", "trapdoor");
 
 	public AdminTowns(Kirithia kr) {
 		this.plugin = kr;

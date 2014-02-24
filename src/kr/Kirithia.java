@@ -28,7 +28,10 @@ import org.bukkit.block.BlockFace;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.ItemFrame;
+import org.bukkit.entity.Painting;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
@@ -39,6 +42,7 @@ import org.bukkit.event.block.LeavesDecayEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDamageEvent.DamageCause;
 import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.hanging.HangingBreakByEntityEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerChatEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -47,6 +51,7 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.material.MaterialData;
 import org.bukkit.material.PressurePlate;
+import org.bukkit.material.Redstone;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Vector;
@@ -1296,7 +1301,8 @@ public class Kirithia extends JavaPlugin implements Listener {
 								return false;
 							}
 							if (!at.getAllPerms().contains(
-									args[3].toLowerCase())&&!args[3].equalsIgnoreCase("all")) {
+									args[3].toLowerCase())
+									&& !args[3].equalsIgnoreCase("all")) {
 								p.sendMessage("§cNot a real perm! /admin town perm listall");
 								return false;
 							}
@@ -1316,12 +1322,14 @@ public class Kirithia extends JavaPlugin implements Listener {
 								return false;
 							}
 							if (!at.getAllPerms().contains(
-									args[3].toLowerCase())&&!args[3].equalsIgnoreCase("all")) {
+									args[3].toLowerCase())
+									&& !args[3].equalsIgnoreCase("all")) {
 								p.sendMessage("§cNot a real perm! /admin town perm listall");
 								return false;
 							}
 							if (!a.getDeniedPerms().contains(
-									args[3].toLowerCase())&&!args[3].equalsIgnoreCase("all")) {
+									args[3].toLowerCase())
+									&& !args[3].equalsIgnoreCase("all")) {
 								p.sendMessage("§cThis perm is already allowed.");
 								return false;
 							}
@@ -4310,26 +4318,28 @@ public class Kirithia extends JavaPlugin implements Listener {
 	}
 
 	@EventHandler
-	public void onInteract(PlayerInteractEvent e) {
-		if (e.getAction().equals(Action.RIGHT_CLICK_AIR)
-				|| e.getAction().equals(Action.LEFT_CLICK_AIR)) {
-			return;
-			//TODO ine
-		}
-		//"lever", "button", "door", "pressure", "tripwire", "repeater", "chest", "furnace", "hopper", "build", "enderchest", "trapdoor")
-		if (e.getAction().equals(Action.LEFT_CLICK_BLOCK)) {
-			return;
-		}
-		Material m = e.getClickedBlock().getType();
-		if (m.equals(Material.LEVER)||m.equals(Material.WOOD_BUTTON)||m.equals(Material.STONE_BUTTON)||m.equals(Material.WOOD_DOOR)||m.equals(Material.IRON_DOOR)||m.equals(Material.WOOD_PLATE)||m.equals(Material.STONE_PLATE)||m.equals(Material.IRON_PLATE)||m.equals(Material.GOLD_PLATE)||m.equals(Material.TRIPWIRE)||m.equals(Material.TRIPWIRE_HOOK)){
-			//TODO other materials
-		}
-		Chunk c = e.getClickedBlock().getLocation().getChunk();
+	public void onEntityBreak(HangingBreakByEntityEvent e) {
+		Chunk c = e.getEntity().getLocation().getChunk();
 		ChunkSnapshot cs = c.getChunkSnapshot();
-		if (e.getAction().equals(Action.RIGHT_CLICK_BLOCK)) {
-			if (ch.getType(cs).equals("wild")) {
-				return;
+		if (e.getRemover() instanceof Player) {
+			p = (Player) e.getRemover();
+		} else if (e.getRemover() instanceof Projectile) {
+			Projectile pr = (Projectile) e.getRemover();
+			if (pr.getShooter() instanceof Player) {
+				p = (Player) pr.getShooter();
+			} else {
+				if (!ch.getType(cs).equals("wild")) {
+					e.setCancelled(true);
+				}
 			}
+		} else {
+			if (!ch.getType(cs).equals("wild")) {
+				e.setCancelled(true);
+			}
+		}
+		if (e.getEntity() instanceof ItemFrame
+				|| e.getEntity() instanceof Painting) {
+
 			if (ch.getType(cs).equals("admin")) {
 				AdminTowns a = at.getTownbyName(c.getX() + "," + c.getZ());
 				if (a.getDeniedPerms().contains("build")) {
@@ -4342,53 +4352,21 @@ public class Kirithia extends JavaPlugin implements Listener {
 			}
 			if (ch.getType(cs).equals("town")) {
 				Towns t = town.getTownofChunk(c);
-				if (t.hasPermission(p, "chunkaccess")) {
-					return;
-				}
-				String rk = "d";
-				if (t.getChunkMembers(c).contains(p.getName())) {
-					rk = "m";
-				}
-				if (t.getChunkOwners(c).contains(p.getName())) {
-					rk = "o";
-				}
-				if (rk.equals("d")) {
-					if (!t.getChunkDefaultPerms().contains("build")) {
-						if (Math.random() < 0.1) {
-							p.sendMessage("§cYou can not build or break blocks here!");
-						}
-						e.setCancelled(true);
-
+				if (!t.hasChunkPermission(c, p, "build")) {
+					if (Math.random() < 0.1) {
+						p.sendMessage("§cYou can not build or break blocks here!");
 					}
+					e.setCancelled(true);
 					return;
 				}
-				if (rk.equals("m")) {
-					if (!t.getChunkDefaultPerms().contains("build")
-							&& !t.getChunkMemberPerms().contains("build")) {
-						if (Math.random() < 0.1) {
-							p.sendMessage("§cYou can not build or break blocks here!");
-						}
-						e.setCancelled(true);
 
-					}
-					return;
-				}
-				if (rk.equals("o")) {
-					if (!t.getChunkDefaultPerms().contains("build")
-							&& !t.getChunkMemberPerms().contains("build")
-							&& !t.getChunkOwnerPerms().contains("build")) {
-						if (Math.random() < 0.1) {
-							p.sendMessage("§cYou can not build or break blocks here!");
-						}
-						e.setCancelled(true);
-
-					}
-					return;
-				}
 			}
 			if (ch.getType(cs).equals("player")) {
 				KPlayer kpl = kp.KP(kp.getPlayerofChunk(c));
-				if (!kpl.getChunkFriends(c).contains(p.getName().toLowerCase())) {
+				if (kpl.getName().equals(p.getName())) {
+					return;
+				}
+				if (!kpl.isChunkFriend(c, p.getName())) {
 					if (!kpl.getDefaultPerms().contains("build")) {
 						p.sendMessage("§cYou can not build or break blocks here!");
 						e.setCancelled(true);
@@ -4403,12 +4381,220 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 				}
 			}
-			return;
 		}
+	}
+
+	@EventHandler
+	public void onInteract(PlayerInteractEvent e) {
 		final Block b = e.getClickedBlock();
 		if (b == null) {
 			return;
 		}
+		p = e.getPlayer();
+		if (p.isOp()) {
+			return;
+		}
+		if (e.getAction().equals(Action.RIGHT_CLICK_AIR)
+				|| e.getAction().equals(Action.LEFT_CLICK_AIR)) {
+			return;
+			// TODO any spells or abilities on interact?
+		}
+		Material m = e.getClickedBlock().getType();
+		// "lever", "button", "door", "pressure", "tripwire", "repeater",
+		// "chest", "furnace", "hopper", "build", "enderchest", "trapdoor")
+		if (e.getAction().equals(Action.LEFT_CLICK_BLOCK)) {
+			return;
+		}
+
+		if (m.equals(Material.LEVER) || m.equals(Material.WOOD_BUTTON)
+				|| m.equals(Material.STONE_BUTTON)
+				|| m.equals(Material.WOOD_DOOR) 
+				|| m.equals(Material.WOOD_PLATE)
+				|| m.equals(Material.STONE_PLATE)
+				|| m.equals(Material.IRON_PLATE)
+				|| m.equals(Material.GOLD_PLATE) || m.equals(Material.TRIPWIRE)
+				|| m.equals(Material.TRIPWIRE_HOOK)
+				|| m.equals(Material.DIODE_BLOCK_OFF)
+				|| m.equals(Material.DIODE_BLOCK_ON)
+				|| m.equals(Material.REDSTONE_COMPARATOR_OFF)
+				|| m.equals(Material.REDSTONE_COMPARATOR_ON)
+				|| m.equals(Material.CHEST) || m.equals(Material.TRAPPED_CHEST)
+				|| m.equals(Material.FURNACE) || m.equals(Material.HOPPER)
+				|| m.equals(Material.HOPPER_MINECART)
+				|| m.equals(Material.MINECART)
+				|| m.equals(Material.ENDER_CHEST)
+				|| m.equals(Material.TRAP_DOOR)) {
+
+			Chunk c = e.getClickedBlock().getLocation().getChunk();
+			ChunkSnapshot cs = c.getChunkSnapshot();
+			if (e.getAction().equals(Action.RIGHT_CLICK_BLOCK)) {
+				if (ch.getType(cs).equals("wild")) {
+					return;
+				}
+				if (ch.getType(cs).equals("admin")) {
+					AdminTowns a = at.getTownbyName(c.getX() + "," + c.getZ());
+					List<String> denied = a.getDeniedPerms();
+					if (m.equals(Material.LEVER)){
+						if (denied.contains("lever")){
+							e.setCancelled(true);
+							p.sendMessage("§cYou can not use levers here!");
+							return;
+						}
+					}
+					if (m.equals(Material.WOOD_BUTTON)
+							|| m.equals(Material.STONE_BUTTON)){
+						if (denied.contains("button")){
+							e.setCancelled(true);
+							p.sendMessage("§cYou can not use buttons here!");
+							return;
+						}
+					}
+					if (m.equals(Material.WOOD_DOOR)){
+						if (denied.contains("door")){
+							e.setCancelled(true);
+							p.sendMessage("§cYou can not use doors here!");
+							return;
+						}
+					}
+					if (m.equals(Material.WOOD_PLATE)
+							|| m.equals(Material.STONE_PLATE)
+							|| m.equals(Material.IRON_PLATE)
+							|| m.equals(Material.GOLD_PLATE)){
+						String l = b.getX() + "," + b.getY() + "," + b.getZ();
+						
+						if (!cannons.containsKey(l)) {
+							
+						
+						if (denied.contains("pressure")){
+							e.setCancelled(true);
+							p.sendMessage("§cYou can not use pressure plates here!");
+							return;
+						}
+						}
+					}
+					if (m.equals(Material.TRIPWIRE)
+							|| m.equals(Material.TRIPWIRE_HOOK)){
+						if (denied.contains("tripwire")){
+							e.setCancelled(true);
+							p.sendMessage("§cYou can not use tripwire here!");
+							return;
+						}
+					}
+					if (m.equals(Material.DIODE_BLOCK_OFF)
+							|| m.equals(Material.DIODE_BLOCK_ON)
+							|| m.equals(Material.REDSTONE_COMPARATOR_OFF)
+							|| m.equals(Material.REDSTONE_COMPARATOR_ON)){
+						if (denied.contains("door")){
+							e.setCancelled(true);
+							p.sendMessage("§cYou can not alter repeaters here!");
+							return;
+						}
+					}
+					if (m.equals(Material.CHEST) || m.equals(Material.TRAPPED_CHEST)){
+						if (denied.contains("door")){
+							if (denied.contains("chestview")){
+							e.setCancelled(true);
+							p.sendMessage("§cYou can not access chests here!");
+							return;
+							}else{
+								//TODO chest view but not alter contents
+							}
+						}
+					}
+					if (m.equals(Material.FURNACE)){
+						if (denied.contains("door")){
+							e.setCancelled(true);
+							p.sendMessage("§cYou can not use furnaces here!");
+							return;
+						}
+					}
+					if (m.equals(Material.HOPPER)
+							|| m.equals(Material.HOPPER_MINECART)){
+						if (denied.contains("door")){
+							e.setCancelled(true);
+							p.sendMessage("§cYou can not use hoppers here!");
+							return;
+						}
+					}
+					if (m.equals(Material.MINECART)){
+						if (denied.contains("door")){
+							e.setCancelled(true);
+							p.sendMessage("§cYou can not use minecarts here!");
+							return;
+						}
+					}
+					if (m.equals(Material.ENDER_CHEST)){
+						if (denied.contains("door")){
+							e.setCancelled(true);
+							p.sendMessage("§cYou can not access enderchests here!");
+							return;
+						}
+					}
+					if (m.equals(Material.TRAP_DOOR)){
+						if (denied.contains("door")){
+							e.setCancelled(true);
+							p.sendMessage("§cYou can not use trap-doors here!");
+							return;
+						}
+					}
+					
+				}
+				if (ch.getType(cs).equals("town")) {
+					Towns t = town.getTownofChunk(c);
+					if (m.equals(Material.CHEST)) {
+						if (!t.hasChunkPermission(c, p, "chests")) {
+							p.sendMessage("§cYou can't use chests here!");
+							e.setCancelled(true);
+							return;
+						}
+					}
+					if (!t.hasChunkPermission(c, p, "use")) {
+						if (Math.random() < 0.1) {
+							p.sendMessage("§cYou can't use this here!");
+						}
+						e.setCancelled(true);
+						return;
+					}
+
+				}
+				if (ch.getType(cs).equals("player")) {
+					KPlayer kpl = kp.KP(kp.getPlayerofChunk(c));
+					if (kpl.getName().equals(p.getName())) {
+						return;
+					}
+					if (m.equals(Material.CHEST)) {
+						if (!kpl.isChunkFriend(c, p.getName())) {
+							if (!kpl.getDefaultPerms().contains("chests")) {
+								p.sendMessage("§cYou can not use chests here!");
+								e.setCancelled(true);
+
+							}
+							return;
+						}
+						if (!kpl.getFriendPerms().contains("chests")) {
+							p.sendMessage("§cYou can not use chests here!");
+							e.setCancelled(true);
+							return;
+						}
+					}
+					if (!kpl.isChunkFriend(c, p.getName())) {
+						if (!kpl.getDefaultPerms().contains("use")) {
+							p.sendMessage("§cYou can not use this here!");
+							e.setCancelled(true);
+
+						}
+						return;
+					}
+					if (!kpl.getFriendPerms().contains("use")) {
+						p.sendMessage("§cYou can not use this here!");
+						e.setCancelled(true);
+						return;
+					}
+				}
+				return;
+			}
+		}
+
 		if (b.getType() == Material.STONE_PLATE) {
 			if (e.getPlayer().isOp()) {
 				try {
@@ -4788,6 +4974,10 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 	@EventHandler
 	public void onBlockplace(BlockPlaceEvent e) {
+		p = e.getPlayer();
+		if (p.isOp()) {
+			return;
+		}
 		Chunk c = e.getBlock().getLocation().getChunk();
 		ChunkSnapshot cs = c.getChunkSnapshot();
 		// TODO check if block is emergency block and let it gooooooo :3
@@ -4810,62 +5000,34 @@ public class Kirithia extends JavaPlugin implements Listener {
 		}
 		if (ch.getType(cs).equals("town")) {
 			Towns t = town.getTownofChunk(c);
-			if (t.hasPermission(p, "chunkaccess")) {
-				return;
-			}
-			String rk = "d";
-			if (t.getChunkMembers(c).contains(p.getName())) {
-				rk = "m";
-			}
-			if (t.getChunkOwners(c).contains(p.getName())) {
-				rk = "o";
-			}
-			if (rk.equals("d")) {
-				if (!t.getChunkDefaultPerms().contains("build")) {
-					if (Math.random() < 0.1) {
-						p.sendMessage("§cYou can not build or break blocks here!");
-					}
-					e.setCancelled(true);
-
+			if (!t.hasChunkPermission(c, p, "build")) {
+				if (Math.random() < 0.1) {
+					p.sendMessage("§cYou can not build or break blocks here!");
 				}
+				e.setCancelled(true);
 				return;
 			}
-			if (rk.equals("m")) {
-				if (!t.getChunkDefaultPerms().contains("build")
-						&& !t.getChunkMemberPerms().contains("build")) {
-					if (Math.random() < 0.1) {
-						p.sendMessage("§cYou can not build or break blocks here!");
-					}
-					e.setCancelled(true);
 
-				}
-				return;
-			}
-			if (rk.equals("o")) {
-				if (!t.getChunkDefaultPerms().contains("build")
-						&& !t.getChunkMemberPerms().contains("build")
-						&& !t.getChunkOwnerPerms().contains("build")) {
-					if (Math.random() < 0.1) {
-						p.sendMessage("§cYou can not build or break blocks here!");
-					}
-					e.setCancelled(true);
-
-				}
-				return;
-			}
 		}
 		if (ch.getType(cs).equals("player")) {
 			KPlayer kpl = kp.KP(kp.getPlayerofChunk(c));
-			if (!kpl.getChunkFriends(c).contains(p.getName().toLowerCase())) {
+			if (kpl.getName().equals(p.getName())) {
+				return;
+			}
+			if (!kpl.isChunkFriend(c, p.getName())) {
 				if (!kpl.getDefaultPerms().contains("build")) {
-					p.sendMessage("§cYou can not build or break blocks here!");
+					if (Math.random() < 0.1) {
+						p.sendMessage("§cYou can not build or break blocks here!");
+					}
 					e.setCancelled(true);
 
 				}
 				return;
 			}
 			if (!kpl.getFriendPerms().contains("build")) {
-				p.sendMessage("§cYou can not build or break blocks here!");
+				if (Math.random() < 0.1) {
+					p.sendMessage("§cYou can not build or break blocks here!");
+				}
 				e.setCancelled(true);
 				return;
 
@@ -4927,62 +5089,34 @@ public class Kirithia extends JavaPlugin implements Listener {
 		}
 		if (ch.getType(cs).equals("town")) {
 			Towns t = town.getTownofChunk(c);
-			if (t.hasPermission(p, "chunkaccess")) {
-				return;
-			}
-			String rk = "d";
-			if (t.getChunkMembers(c).contains(p.getName())) {
-				rk = "m";
-			}
-			if (t.getChunkOwners(c).contains(p.getName())) {
-				rk = "o";
-			}
-			if (rk.equals("d")) {
-				if (!t.getChunkDefaultPerms().contains("build")) {
-					if (Math.random() < 0.1) {
-						p.sendMessage("§cYou can not build or break blocks here!");
-					}
-					e.setCancelled(true);
-
+			if (!t.hasChunkPermission(c, p, "build")) {
+				if (Math.random() < 0.1) {
+					p.sendMessage("§cYou can not build or break blocks here!");
 				}
+				e.setCancelled(true);
 				return;
 			}
-			if (rk.equals("m")) {
-				if (!t.getChunkDefaultPerms().contains("build")
-						&& !t.getChunkMemberPerms().contains("build")) {
-					if (Math.random() < 0.1) {
-						p.sendMessage("§cYou can not build or break blocks here!");
-					}
-					e.setCancelled(true);
 
-				}
-				return;
-			}
-			if (rk.equals("o")) {
-				if (!t.getChunkDefaultPerms().contains("build")
-						&& !t.getChunkMemberPerms().contains("build")
-						&& !t.getChunkOwnerPerms().contains("build")) {
-					if (Math.random() < 0.1) {
-						p.sendMessage("§cYou can not build or break blocks here!");
-					}
-					e.setCancelled(true);
-
-				}
-				return;
-			}
 		}
 		if (ch.getType(cs).equals("player")) {
 			KPlayer kpl = kp.KP(kp.getPlayerofChunk(c));
-			if (!kpl.getChunkFriends(c).contains(p.getName().toLowerCase())) {
+			if (kpl.getName().equals(p.getName())) {
+				return;
+			}
+			if (!kpl.isChunkFriend(c, p.getName())) {
 				if (!kpl.getDefaultPerms().contains("build")) {
-					p.sendMessage("§cYou can not build or break blocks here!");
+					if (Math.random() < 0.1) {
+						p.sendMessage("§cYou can not build or break blocks here!");
+					}
 					e.setCancelled(true);
 
 				}
 				return;
 			}
 			if (!kpl.getFriendPerms().contains("build")) {
-				p.sendMessage("§cYou can not build or break blocks here!");
+				if (Math.random() < 0.1) {
+					p.sendMessage("§cYou can not build or break blocks here!");
+				}
 				e.setCancelled(true);
 				return;
 
@@ -5047,20 +5181,20 @@ public class Kirithia extends JavaPlugin implements Listener {
 		}, 2);
 
 	}
-	
-	public Chunks getChunkClass(){
+
+	public Chunks getChunkClass() {
 		return ch;
 	}
-	
-	public Towns getTownClass(){
+
+	public Towns getTownClass() {
 		return town;
 	}
-	
-	public KPlayer getKPlayerClass(){
+
+	public KPlayer getKPlayerClass() {
 		return kp;
 	}
-	
-	public AdminTowns getAdminTownsClass(){
+
+	public AdminTowns getAdminTownsClass() {
 		return at;
 	}
 
