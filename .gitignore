@@ -1,1 +1,14 @@
-/bin
+# Eclipse Files … who needs them?
+bin/
+.settings/
+.classpath
+.project
+*.class
+
+# Intellij
+.idea/
+*.iml
+*.iws
+
+# Mac
+.DS_Store
