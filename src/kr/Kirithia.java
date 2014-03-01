@@ -3,10 +3,13 @@ package kr;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import kr.Particles.ParticleEffect;
 import kr.Towns.AdminTowns;
@@ -28,6 +31,7 @@ import org.bukkit.block.BlockFace;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.ItemFrame;
 import org.bukkit.entity.Painting;
 import org.bukkit.entity.Player;
@@ -36,19 +40,27 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockBurnEvent;
+import org.bukkit.event.block.BlockIgniteEvent;
+import org.bukkit.event.block.BlockIgniteEvent.IgniteCause;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.BlockSpreadEvent;
 import org.bukkit.event.block.LeavesDecayEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDamageEvent.DamageCause;
 import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.entity.EntityRegainHealthEvent;
 import org.bukkit.event.hanging.HangingBreakByEntityEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerChatEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.material.MaterialData;
 import org.bukkit.material.PressurePlate;
 import org.bukkit.material.Redstone;
@@ -65,9 +77,13 @@ public class Kirithia extends JavaPlugin implements Listener {
 	Plugin plugin;
 	static List<String> allowed = new ArrayList<String>();
 	static List<String> usingadminchat = new ArrayList<String>();
+	static List<String> creatingmine = new ArrayList<String>();
+	static List<String> minenames = new ArrayList<String>();
 	static List<String> usingtownchat = new ArrayList<String>();
 	static List<String> deletedtowns = new ArrayList<String>();
 	static List<String> deletedadmintowns = new ArrayList<String>();
+	public HashMap<String, String> settingpoints = new HashMap<String, String>();
+	public HashMap<String, Location> minepoints = new HashMap<String, Location>();
 	public HashMap<String, List<String>> invited = new HashMap<String, List<String>>();
 	public HashMap<String, List<String>> allyreq = new HashMap<String, List<String>>();
 	public HashMap<String, List<String>> neutralreq = new HashMap<String, List<String>>();
@@ -83,8 +99,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 	static List<String> nofalldmg = new ArrayList<String>();
 	static List<Player> casting = new ArrayList<Player>();
 	static List<String> allplayers = new ArrayList<String>();
-	Player p;
-	KPlayer kpl;
+	static HashMap<String, ItemStack> items = new HashMap<String,ItemStack>();
 	AdminTowns at = null;
 	Towns town = null;
 	Chunks ch = null;
@@ -324,12 +339,51 @@ public class Kirithia extends JavaPlugin implements Listener {
 		ch = new Chunks(this);
 		kp = new KPlayer(this);
 		plugin = this;
-		// TODO add ALL playerdata info to plinfos
-		// TODO put ALL KPlayer CHUNKS into standard kp
-		// kp.addOfflineChunk(chunk, playername)
-		// ^^ needed for moveevent
-		// means you won't need to add all chunks to whatplayer when looping
-		// through players
+
+		//initialise starter perm items.
+		ItemStack is = new ItemStack(Material.FLINT_AND_STEEL);
+		ItemMeta im = is.getItemMeta();
+		//TODO real mana crystal ;)
+		//im.setDisplayName("Â§bMana Crystal");
+		//im.setLore(Arrays.asList("Â§bMana: Â§a10/100",
+		//		"Â§7Leveling up and gaining Wisdom",
+		//		"Â§7increases your total Mana."));
+		//is.setItemMeta(im);
+		//items.put("manacrystal", is);
+		im.setDisplayName("Â§4Coming soon!");
+		im.setLore(Arrays.asList("Â§7Magic will be",
+				"Â§7introduced soon!"));
+		is.setItemMeta(im);
+		items.put("manacrystal", is);
+		
+		is = new ItemStack(Material.BOOK);
+		im.setDisplayName("Â§dMy Character");
+		im.setLore(Arrays.asList("Â§7Right click to use.",
+						"Â§7Contains character information",
+						"Â§7and perk and spell selection."));
+		is.setItemMeta(im);
+		items.put("mycharacter", is);
+		
+		is = new ItemStack(Material.WALL_SIGN);
+		im.setDisplayName("Â§4Coming soon!");
+		im.setLore(Arrays.asList("Â§7A feature is under",
+				"Â§7development. Expect to see",
+				"Â§7an update soon!"));
+		is.setItemMeta(im);
+		items.put("comingsoon", is);
+		
+		
+		YamlConfiguration mines = YamlConfiguration
+				.loadConfiguration(new File(plugin.getDataFolder()
+						+ File.separator + "mines.yml"));
+		if (mines.get("mines")!=null){
+			for (String n : mines.getStringList("mines")){
+				minenames.add(n);
+				minepoints.put(n+"1", locationFromString(mines.getString(n+".1")));
+				minepoints.put(n+"2", locationFromString(mines.getString(n+".2")));
+			}
+		}
+		
 		YamlConfiguration kpyaml = YamlConfiguration
 				.loadConfiguration(new File(plugin.getDataFolder()
 						+ File.separator + "players" + File.separator
@@ -351,7 +405,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 						kpyaml.getStringList("chunkcoords." + coords
 								+ ".friends"));
 			}
-			kpl = kp.setup(kpyaml.getString("name"),
+			KPlayer kpl = kp.setup(kpyaml.getString("name"),
 					kpyaml.getStringList("chunks"),
 					(HashMap<String, List<String>>) chunkhash,
 					kpyaml.getStringList("defaultperms"),
@@ -475,6 +529,22 @@ public class Kirithia extends JavaPlugin implements Listener {
 	}
 
 	public void onDisable() {
+		new File(plugin.getDataFolder()
+				+ File.separator + "mines.yml").delete();
+		YamlConfiguration mines = YamlConfiguration
+				.loadConfiguration(new File(plugin.getDataFolder()
+						+ File.separator + "mines.yml"));
+		mines.set("mines", minenames);
+		for (String n: minenames){
+			mines.set(n+".1", locationToString(minepoints.get(n+"1")));
+			mines.set(n+".2", locationToString(minepoints.get(n+"2")));
+		}
+		try {
+			mines.save(new File(plugin.getDataFolder() + File.separator + "mines.yml"));
+		} catch (IOException e1) {
+		}
+		
+		
 		YamlConfiguration kplyaml = YamlConfiguration
 				.loadConfiguration(new File(plugin.getDataFolder()
 						+ File.separator + "players" + File.separator
@@ -690,6 +760,8 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 	public boolean onCommand(CommandSender sender, Command cmd, String label,
 			String[] args) {
+		Player p = null;
+		KPlayer kpl = null;
 		if (sender instanceof Player) {
 			p = (Player) sender;
 			kpl = kp.KP(p.getName());
@@ -700,17 +772,16 @@ public class Kirithia extends JavaPlugin implements Listener {
 		if (label.equalsIgnoreCase("chunk") || label.equalsIgnoreCase("chunks")) {
 			if (sender.hasPermission("kirithia.chunk")) {
 				if (args.length == 0) {
-					p.sendMessage("§7-----------------------------------------------------");
-					p.sendMessage("§7---------------§6Kirithian Chunks Help§7---------------");
-					p.sendMessage("§7-----------------------------------------------------");
-					p.sendMessage("  §6Claim private chunks to build in or store items safely!");
-					p.sendMessage("- §e/chunk claim: §7Claims the chunk you are in.");
-					p.sendMessage("- §e/chunk unclaim: §7Unclaims the chunk you are in.");
-					p.sendMessage("- §e/chunk addFriend <name>: §7Adds a player to a chunk.");
-					p.sendMessage("- §e/chunk removeFriend <name>: §7Removes a player from chunk.");
-					p.sendMessage("- §e/chunk info: §7Information on chunk and chunk friends.");
-					p.sendMessage("- §e/chunk perm: §7Chunk permissions commands.");
-					p.sendMessage(playerstoupdate.toString());
+					p.sendMessage("Â§7-----------------------------------------------------");
+					p.sendMessage("Â§7---------------Â§6Kirithian Chunks HelpÂ§7---------------");
+					p.sendMessage("Â§7-----------------------------------------------------");
+					p.sendMessage("  Â§6Claim private chunks to build in or store items safely!");
+					p.sendMessage("- Â§e/chunk claim: Â§7Claims the chunk you are in.");
+					p.sendMessage("- Â§e/chunk unclaim: Â§7Unclaims the chunk you are in.");
+					p.sendMessage("- Â§e/chunk addFriend <name>: Â§7Adds a player to a chunk.");
+					p.sendMessage("- Â§e/chunk removeFriend <name>: Â§7Removes a player from chunk.");
+					p.sendMessage("- Â§e/chunk info: Â§7Information on chunk and chunk friends.");
+					p.sendMessage("- Â§e/chunk perm: Â§7Chunk permissions commands.");
 					return false;
 
 				}
@@ -719,24 +790,24 @@ public class Kirithia extends JavaPlugin implements Listener {
 					if (ch.getType(c.getChunkSnapshot()) != "wild") {
 						if (kp.getPlayerofChunk(p.getLocation().getChunk())
 								.equalsIgnoreCase(p.getName())) {
-							p.sendMessage("§cYou already own this chunk!");
+							p.sendMessage("Â§cYou already own this chunk!");
 						} else {
-							p.sendMessage("§cThis chunk is already owned. Check §e/chunk info");
+							p.sendMessage("Â§cThis chunk is already owned. Check Â§e/chunk info");
 						}
 						return false;
 					}
 					if (!kpl.hasClaimedAny()
 							&& getCooldownRemaining("firstchunk", p.getName()) > 0) {
-						p.sendMessage("§cYou can not claim a home chunk for another "
+						p.sendMessage("Â§cYou can not claim a home chunk for another "
 								+ toHourMinSec(getCooldownRemaining(
 										"firstchunk", p.getName())));
 						return false;
 					}
 
 					if (!kpl.canClaimAnother()) {
-						p.sendMessage("§cYou have already claimed your maximum of "
+						p.sendMessage("Â§cYou have already claimed your maximum of "
 								+ kpl.getMaxChunks()
-								+ " chunks. §bkirithia.com/shop §cto increase your limit!");
+								+ " chunks. Â§bkirithia.com/shop Â§cto increase your limit!");
 						return false;
 					}
 					int X = c.getX();
@@ -755,7 +826,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 									c.getWorld().getChunkAt(X, Z + 1)).equals(
 									p.getName())) {
 						// no adjacent chunks claimed and this isn't first claim
-						p.sendMessage("§cYou can only claim chunks that are next to your other chunks!");
+						p.sendMessage("Â§cYou can only claim chunks that are next to your other chunks!");
 						return false;
 					}
 					setCooldown("firstchunk", p.getName(), 10800);
@@ -765,7 +836,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 					// a console setMax command for donors
 					kp.addChunk(c, kpl);
 
-					p.sendMessage("§aYou claimed the chunk you are standing in! Type §e/chunk §afor commands!");
+					p.sendMessage("Â§aYou claimed the chunk you are standing in! Type Â§e/chunk Â§afor commands!");
 					return false;
 				}
 
@@ -773,16 +844,16 @@ public class Kirithia extends JavaPlugin implements Listener {
 					Chunk c = p.getLocation().getChunk();
 
 					if (ch.getType(c.getChunkSnapshot()) != "player") {
-						p.sendMessage("§cYou do not own this chunk! Check §e/chunk info");
+						p.sendMessage("Â§cYou do not own this chunk! Check Â§e/chunk info");
 						return false;
 					} else if (!kp.getPlayerofChunk(c).equals(p.getName())) {
-						p.sendMessage("§cYou do not own this chunk! Check §e/chunk info");
+						p.sendMessage("Â§cYou do not own this chunk! Check Â§e/chunk info");
 						return false;
 					}
 
 					if (args.length > 1) {
 						if (!args[1].equalsIgnoreCase("confirm")) {
-							p.sendMessage("§cDid you mean §e/chunk unclaim§c?");
+							p.sendMessage("Â§cDid you mean Â§e/chunk unclaimÂ§c?");
 							return false;
 						}
 					}
@@ -791,21 +862,21 @@ public class Kirithia extends JavaPlugin implements Listener {
 						if (kpl.getNumberofChunks() == 1
 								&& getCooldownRemaining("firstchunk",
 										p.getName()) > 0) {
-							p.sendMessage("§cYou will not be able to claim a home chunk for "
+							p.sendMessage("Â§cYou will not be able to claim a home chunk for "
 									+ toHourMinSec(getCooldownRemaining(
 											"firstchunk", p.getName())));
-							p.sendMessage("§cType §e/chunk unclaim confirm §cto continue with the unclaim!");
+							p.sendMessage("Â§cType Â§e/chunk unclaim confirm Â§cto continue with the unclaim!");
 							return false;
 						}
 					} else {
 						kp.removeChunk(c, kpl);
 						ch.removeChunk(c.getChunkSnapshot());
-						p.sendMessage("§aChunk successfully unclaimed!");
+						p.sendMessage("Â§aChunk successfully unclaimed!");
 						return false;
 					}
 					kp.removeChunk(c, kpl);
 					ch.removeChunk(c.getChunkSnapshot());
-					p.sendMessage("§aChunk successfully unclaimed!");
+					p.sendMessage("Â§aChunk successfully unclaimed!");
 					return false;
 
 				}
@@ -814,37 +885,37 @@ public class Kirithia extends JavaPlugin implements Listener {
 					Chunk c = p.getLocation().getChunk();
 
 					if (ch.getType(c.getChunkSnapshot()) != "player") {
-						p.sendMessage("§cYou do not own this chunk! You can only add friends to a chunk you own.");
+						p.sendMessage("Â§cYou do not own this chunk! You can only add friends to a chunk you own.");
 						return false;
 					} else if (!kp.getPlayerofChunk(c).equals(p.getName())) {
-						p.sendMessage("§cYou do not own this chunk! You can only add friends to a chunk you own.");
+						p.sendMessage("Â§cYou do not own this chunk! You can only add friends to a chunk you own.");
 						return false;
 					}
 					if (args.length < 2) {
-						p.sendMessage("§cUse like this! §e/chunk addFriend <playername>");
+						p.sendMessage("Â§cUse like this! Â§e/chunk addFriend <playername>");
 						return false;
 					}
 					Player add = Bukkit.getPlayer(args[1]);
 					if (add != null) {
 						if (!kpl.isChunkFriend(c, add.getName())) {
 							if (add.getName().equals(p.getName())) {
-								p.sendMessage("§cYou can not add yourself as a friend to this chunk!");
+								p.sendMessage("Â§cYou can not add yourself as a friend to this chunk!");
 								return false;
 							}
 							kpl.addChunkFriend(c, add.getName());
-							p.sendMessage("§aAdded §e" + add.getName()
-									+ " §ato the chunk you are standing in!");
+							p.sendMessage("Â§aAdded Â§e" + add.getName()
+									+ " Â§ato the chunk you are standing in!");
 							return false;
 						} else {
-							p.sendMessage("§e"
+							p.sendMessage("Â§e"
 									+ add.getName()
-									+ " §chas already been added to this chunk!");
+									+ " Â§chas already been added to this chunk!");
 							return false;
 						}
 
 					} else {
-						p.sendMessage("§cThis player is not online!");
-						p.sendMessage("§cIf you wish to add an offline player, use §e/chunk addOfflineFriend <playername>");
+						p.sendMessage("Â§cThis player is not online!");
+						p.sendMessage("Â§cIf you wish to add an offline player, use Â§e/chunk addOfflineFriend <playername>");
 						return false;
 					}
 
@@ -852,28 +923,28 @@ public class Kirithia extends JavaPlugin implements Listener {
 				if (args[0].equalsIgnoreCase("addofflinefriend")) {
 					Chunk c = p.getLocation().getChunk();
 					if (ch.getType(c.getChunkSnapshot()) != "player") {
-						p.sendMessage("§cYou do not own this chunk! You can only add friends to a chunk you own.");
+						p.sendMessage("Â§cYou do not own this chunk! You can only add friends to a chunk you own.");
 						return false;
 					} else if (!kp.getPlayerofChunk(c).equals(p.getName())) {
-						p.sendMessage("§cYou do not own this chunk! You can only add friends to a chunk you own.");
+						p.sendMessage("Â§cYou do not own this chunk! You can only add friends to a chunk you own.");
 						return false;
 					}
 					if (args.length < 2) {
-						p.sendMessage("§cUse like this! §e/chunk addOfflineFriend <playername>");
+						p.sendMessage("Â§cUse like this! Â§e/chunk addOfflineFriend <playername>");
 						return false;
 					}
 					if (!kpl.isChunkFriend(c, args[1])) {
 						if (args[1].equalsIgnoreCase(p.getName())) {
-							p.sendMessage("§cYou can not add yourself as a friend to this chunk!");
+							p.sendMessage("Â§cYou can not add yourself as a friend to this chunk!");
 							return false;
 						}
 						kpl.addChunkFriend(c, args[1]);
-						p.sendMessage("§aAdded §e" + args[1]
-								+ " §ato the chunk you are standing in!");
+						p.sendMessage("Â§aAdded Â§e" + args[1]
+								+ " Â§ato the chunk you are standing in!");
 						return false;
 					} else {
-						p.sendMessage("§e" + args[1]
-								+ " §chas already been added to this chunk!");
+						p.sendMessage("Â§e" + args[1]
+								+ " Â§chas already been added to this chunk!");
 						return false;
 					}
 				}
@@ -881,24 +952,24 @@ public class Kirithia extends JavaPlugin implements Listener {
 				if (args[0].equalsIgnoreCase("removefriend")) {
 					Chunk c = p.getLocation().getChunk();
 					if (ch.getType(c.getChunkSnapshot()) != "player") {
-						p.sendMessage("§cYou do not own this chunk! You can remove friends from a chunk you own.");
+						p.sendMessage("Â§cYou do not own this chunk! You can remove friends from a chunk you own.");
 						return false;
 					} else if (!kp.getPlayerofChunk(c).equals(p.getName())) {
-						p.sendMessage("§cYou do not own this chunk! You can remove friends from a chunk you own.");
+						p.sendMessage("Â§cYou do not own this chunk! You can remove friends from a chunk you own.");
 						return false;
 					}
 					if (args.length < 2) {
-						p.sendMessage("§cUse like this! §e/chunk removeFriend <playername>");
+						p.sendMessage("Â§cUse like this! Â§e/chunk removeFriend <playername>");
 						return false;
 					}
 					if (kpl.isChunkFriend(c, args[1])) {
 						kpl.removeChunkFriend(c, args[1]);
-						p.sendMessage("§aSuccessfully removed §e" + args[1]
-								+ " §afrom the chunk you are standing in!");
+						p.sendMessage("Â§aSuccessfully removed Â§e" + args[1]
+								+ " Â§afrom the chunk you are standing in!");
 						return false;
 					} else {
-						p.sendMessage("§e" + args[1]
-								+ " §chas not been added to this chunk!");
+						p.sendMessage("Â§e" + args[1]
+								+ " Â§chas not been added to this chunk!");
 						return false;
 					}
 				}
@@ -907,41 +978,41 @@ public class Kirithia extends JavaPlugin implements Listener {
 					Chunk chunk = p.getLocation().getChunk();
 					ChunkSnapshot c = chunk.getChunkSnapshot();
 					if (ch.getType(c).equals("wild")) {
-						p.sendMessage("§eThis chunk is §aunclaimed§e. You are in §7The Wild§e!");
+						p.sendMessage("Â§eThis chunk is Â§aunclaimedÂ§e. You are in Â§7The WildÂ§e!");
 						return false;
 					}
 					if (ch.getType(c).equals("admin")) {
 						AdminTowns att = at.getTownbyName(c.getX() + ","
 								+ c.getZ());
 						if (att.getMessage().equalsIgnoreCase("none")) {
-							p.sendMessage("§eYou are in an §cAdmin Town§e!");
+							p.sendMessage("Â§eYou are in an Â§cAdmin TownÂ§e!");
 							return false;
 						}
-						p.sendMessage("§eYou are in an §cAdmin Town§e!");
+						p.sendMessage("Â§eYou are in an Â§cAdmin TownÂ§e!");
 						p.sendMessage(att.getMessage());
 						return false;
 					}
 					if (ch.getType(c).equals("town")) {
 						Towns tt = town.getTownofChunk(c);
-						p.sendMessage("§eYou are in the territory of the town §b"
-								+ tt.getName() + "§e!");
+						p.sendMessage("Â§eYou are in the territory of the town Â§b"
+								+ tt.getName() + "Â§e!");
 						return false;
 					}
 					if (ch.getType(c).equals("player")) {
 						String name = kp.getPlayerofChunk(c);
 						if (name.equals(p.getName())) {
-							p.sendMessage("§eYou own this chunk!");
-							String friends = "§cnone";
+							p.sendMessage("Â§eYou own this chunk!");
+							String friends = "Â§cnone";
 							if (!kpl.getChunkFriends(chunk).isEmpty()) {
 								friends = kpl.getChunkFriends(chunk).toString();
 								friends = friends.replace("[", "");
 								friends = friends.replace("]", "");
 							}
-							p.sendMessage("§eChunk Friends: §a" + friends);
+							p.sendMessage("Â§eChunk Friends: Â§a" + friends);
 							return false;
 						}
-						p.sendMessage("§eYou are in §d" + name
-								+ "§e's Private Chunk!");
+						p.sendMessage("Â§eYou are in Â§d" + name
+								+ "Â§e's Private Chunk!");
 						return false;
 					}
 				}
@@ -949,13 +1020,13 @@ public class Kirithia extends JavaPlugin implements Listener {
 				if (args[0].equalsIgnoreCase("perm")
 						|| args[0].equalsIgnoreCase("perms")) {
 					if (args.length == 1) {
-						p.sendMessage("§7-----------------------------------------------------");
-						p.sendMessage("§7--------------§6Private Chunk Permissions§7--------------");
-						p.sendMessage("§7-----------------------------------------------------");
-						p.sendMessage("- §e/chunk perm §ainfo: §7Information about each permission.");
-						p.sendMessage("- §e/chunk perm §fdefault: §7Lists the default permissions.");
-						p.sendMessage("- §e/chunk perm §6friends: §7Lists the member permissions.");
-						p.sendMessage("§7-----------------------------------------------------");
+						p.sendMessage("Â§7-----------------------------------------------------");
+						p.sendMessage("Â§7--------------Â§6Private Chunk PermissionsÂ§7--------------");
+						p.sendMessage("Â§7-----------------------------------------------------");
+						p.sendMessage("- Â§e/chunk perm Â§ainfo: Â§7Information about each permission.");
+						p.sendMessage("- Â§e/chunk perm Â§fdefault: Â§7Lists the default permissions.");
+						p.sendMessage("- Â§e/chunk perm Â§6friends: Â§7Lists the member permissions.");
+						p.sendMessage("Â§7-----------------------------------------------------");
 						return false;
 					}
 					if (!args[1].equalsIgnoreCase("info")
@@ -964,46 +1035,46 @@ public class Kirithia extends JavaPlugin implements Listener {
 							&& !args[1].equalsIgnoreCase("friends")
 							&& !args[1].equalsIgnoreCase("freinds")
 							&& !args[1].equalsIgnoreCase("freind")) {
-						p.sendMessage("§7-----------------------------------------------------");
-						p.sendMessage("§7--------------§6Private Chunk Permissions§7--------------");
-						p.sendMessage("§7-----------------------------------------------------");
-						p.sendMessage("- §e/chunk perm §ainfo: §7Information about each permission.");
-						p.sendMessage("- §e/chunk perm §fdefault: §7Lists the default permissions.");
-						p.sendMessage("- §e/chunk perm §6friends: §7Lists the member permissions.");
-						p.sendMessage("§7-----------------------------------------------------");
+						p.sendMessage("Â§7-----------------------------------------------------");
+						p.sendMessage("Â§7--------------Â§6Private Chunk PermissionsÂ§7--------------");
+						p.sendMessage("Â§7-----------------------------------------------------");
+						p.sendMessage("- Â§e/chunk perm Â§ainfo: Â§7Information about each permission.");
+						p.sendMessage("- Â§e/chunk perm Â§fdefault: Â§7Lists the default permissions.");
+						p.sendMessage("- Â§e/chunk perm Â§6friends: Â§7Lists the member permissions.");
+						p.sendMessage("Â§7-----------------------------------------------------");
 						return false;
 					}
 					if (args[1].equalsIgnoreCase("info")) {
-						p.sendMessage("§7-----------------------------------------------------");
-						p.sendMessage("- §buse - §7Allows the use of levers, doors etc...");
-						p.sendMessage("- §bchests - §7Allows the use of chests, furnaces, hoppers etc...");
-						p.sendMessage("- §bbuild - §7Allows placing and removing of blocks.");
-						p.sendMessage("§7-----------------------------------------------------");
+						p.sendMessage("Â§7-----------------------------------------------------");
+						p.sendMessage("- Â§buse - Â§7Allows the use of levers, doors etc...");
+						p.sendMessage("- Â§bchests - Â§7Allows the use of chests, furnaces, hoppers etc...");
+						p.sendMessage("- Â§bbuild - Â§7Allows placing and removing of blocks.");
+						p.sendMessage("Â§7-----------------------------------------------------");
 						return false;
 					}
 					if (args[1].equalsIgnoreCase("default")) {
 						if (args.length == 2) {
 							List<String> perl = kpl.getDefaultPerms();
-							String msg = "§cnone";
+							String msg = "Â§cnone";
 							if (!perl.isEmpty()) {
-								msg = "§a" + perl.toString();
+								msg = "Â§a" + perl.toString();
 								msg = msg.replace("[", "");
 								msg = msg.replace("]", "");
 							}
 
-							p.sendMessage("§7-----------------------------------------------------");
-							p.sendMessage("§fDefault §bPermissions: " + msg);
-							p.sendMessage("§fTo set: §e/chunk perm default <permission> allow/deny");
-							p.sendMessage("§7-----------------------------------------------------");
+							p.sendMessage("Â§7-----------------------------------------------------");
+							p.sendMessage("Â§fDefault Â§bPermissions: " + msg);
+							p.sendMessage("Â§fTo set: Â§e/chunk perm default <permission> allow/deny");
+							p.sendMessage("Â§7-----------------------------------------------------");
 							return false;
 						}
 						if (!args[2].equalsIgnoreCase("use")
 								&& !args[2].equalsIgnoreCase("build")
 								&& !args[2].equalsIgnoreCase("chest")
 								&& !args[2].equalsIgnoreCase("chests")) {
-							p.sendMessage("§e"
+							p.sendMessage("Â§e"
 									+ args[2]
-									+ " §cis not a valid permission! §euse, chests, build");
+									+ " Â§cis not a valid permission! Â§euse, chests, build");
 							return false;
 						}
 						String perm = args[2].toLowerCase();
@@ -1011,29 +1082,29 @@ public class Kirithia extends JavaPlugin implements Listener {
 							perm = "chests";
 						}
 						if (args.length < 4) {
-							p.sendMessage("§e/chunk perm default " + args[2]
+							p.sendMessage("Â§e/chunk perm default " + args[2]
 									+ " allow/deny");
-							p.sendMessage("§aAllow §for §cdeny§f?");
+							p.sendMessage("Â§aAllow Â§for Â§cdenyÂ§f?");
 							return false;
 						}
 						boolean yesno = false;
-						String msgbool = "§cdenied";
+						String msgbool = "Â§cdenied";
 						if (!args[3].equalsIgnoreCase("allow")
 								&& !args[3].equalsIgnoreCase("deny")) {
-							p.sendMessage("§e/chunk perm default " + args[2]
+							p.sendMessage("Â§e/chunk perm default " + args[2]
 									+ " allow/deny");
-							p.sendMessage("§aAllow §for §cdeny§f?");
+							p.sendMessage("Â§aAllow Â§for Â§cdenyÂ§f?");
 							return false;
 						}
 						if (args[3].equalsIgnoreCase("allow")) {
 							yesno = true;
-							msgbool = "§aallowed";
+							msgbool = "Â§aallowed";
 						}
 						kpl.setDefaultPerm(perm, yesno);
 
-						p.sendMessage("§aThe permission §b" + perm
-								+ " §ais now " + msgbool
-								+ " §afor non-friends (§fDefaults§a).");
+						p.sendMessage("Â§aThe permission Â§b" + perm
+								+ " Â§ais now " + msgbool
+								+ " Â§afor non-friends (Â§fDefaultsÂ§a).");
 						return false;
 					}
 
@@ -1043,26 +1114,26 @@ public class Kirithia extends JavaPlugin implements Listener {
 							|| args[1].equalsIgnoreCase("freind")) {
 						if (args.length == 2) {
 							List<String> perl = kpl.getFriendPerms();
-							String msg = "§cnone";
+							String msg = "Â§cnone";
 							if (!perl.isEmpty()) {
-								msg = "§a" + perl.toString();
+								msg = "Â§a" + perl.toString();
 								msg = msg.replace("[", "");
 								msg = msg.replace("]", "");
 							}
 
-							p.sendMessage("§7-----------------------------------------------------");
-							p.sendMessage("§6Friend §bPermissions: " + msg);
-							p.sendMessage("§fTo set: §e/chunk perm friends <permission> allow/deny");
-							p.sendMessage("§7-----------------------------------------------------");
+							p.sendMessage("Â§7-----------------------------------------------------");
+							p.sendMessage("Â§6Friend Â§bPermissions: " + msg);
+							p.sendMessage("Â§fTo set: Â§e/chunk perm friends <permission> allow/deny");
+							p.sendMessage("Â§7-----------------------------------------------------");
 							return false;
 						}
 						if (!args[2].equalsIgnoreCase("use")
 								&& !args[2].equalsIgnoreCase("build")
 								&& !args[2].equalsIgnoreCase("chest")
 								&& !args[2].equalsIgnoreCase("chests")) {
-							p.sendMessage("§e"
+							p.sendMessage("Â§e"
 									+ args[2]
-									+ " §cis not a valid permission! §euse, chests, build");
+									+ " Â§cis not a valid permission! Â§euse, chests, build");
 							return false;
 						}
 						String perm = args[2].toLowerCase();
@@ -1070,29 +1141,29 @@ public class Kirithia extends JavaPlugin implements Listener {
 							perm = "chests";
 						}
 						if (args.length < 4) {
-							p.sendMessage("§e/chunk perm friends " + args[2]
+							p.sendMessage("Â§e/chunk perm friends " + args[2]
 									+ " allow/deny");
-							p.sendMessage("§aAllow §for §cdeny§f?");
+							p.sendMessage("Â§aAllow Â§for Â§cdenyÂ§f?");
 							return false;
 						}
 						boolean yesno = false;
-						String msgbool = "§cdenied";
+						String msgbool = "Â§cdenied";
 						if (!args[3].equalsIgnoreCase("allow")
 								&& !args[3].equalsIgnoreCase("deny")) {
-							p.sendMessage("§e/chunk perm default " + args[2]
+							p.sendMessage("Â§e/chunk perm default " + args[2]
 									+ " allow/deny");
-							p.sendMessage("§aAllow §for §cdeny§f?");
+							p.sendMessage("Â§aAllow Â§for Â§cdenyÂ§f?");
 							return false;
 						}
 						if (args[3].equalsIgnoreCase("allow")) {
 							yesno = true;
-							msgbool = "§aallowed";
+							msgbool = "Â§aallowed";
 						}
 						kpl.setFriendPerm(perm, yesno);
 
-						p.sendMessage("§aThe permission §b" + perm
-								+ " §ais now " + msgbool
-								+ " §afor §6Friends§a.");
+						p.sendMessage("Â§aThe permission Â§b" + perm
+								+ " Â§ais now " + msgbool
+								+ " Â§afor Â§6FriendsÂ§a.");
 						return false;
 					}
 
@@ -1100,22 +1171,91 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 			}
 		}
+		if (label.equalsIgnoreCase("mine")) {
+			if (!sender.hasPermission("kirithia.mine")) {
+				return false;
+			}
+			if (args.length == 0) {
+				p.sendMessage("Â§cLike this: Â§e/mine create");
+				p.sendMessage("Â§cLike this: Â§e/mine name <name>");
+				p.sendMessage("Â§cLike this: Â§e/mine delete <name>");
+				p.sendMessage("Â§cLike this: Â§e/mine info");
+				p.sendMessage("Â§cLike this: Â§e/mine list");
+				return false;
+			}
+			if (args[0].equalsIgnoreCase("create")) {
+				if (!creatingmine.contains(p.getName())){
+					p.sendMessage("Â§eNow left click and right click the corners, don't use worldedit wand.");
+					creatingmine.add(p.getName());
+					return false;
+				}else{
+					p.sendMessage("Â§eMine-Create mode disabled.");
+					creatingmine.remove(p.getName());
+					return false;
+					
+				}
+			}
+			if (args[0].equalsIgnoreCase("name")) {
+				if (args.length == 1) {
+					p.sendMessage("Â§cLike this: Â§e/mine name <name>");
+					return false;
+				}
+				if (!settingpoints.containsKey(p.getName()+"right")||!settingpoints.containsKey(p.getName()+"left")){
+					p.sendMessage("Â§cYou must set points first! Â§e/mine create");
+					return false;
+				}
+				if (minenames.contains(args[1].toLowerCase())){
+					p.sendMessage("Â§cName taken. Choose another.");
+					return false;
+				}
+				String[] array = settingpoints.get(p.getName()+"right").split(",");
+				minepoints.put(args[1].toLowerCase()+"1", new Location(p.getWorld(), Integer.parseInt(array[0]), Integer.parseInt(array[1]), Integer.parseInt(array[2])));
+				array = settingpoints.get(p.getName()+"left").split(",");
+				minepoints.put(args[1].toLowerCase()+"2", new Location(p.getWorld(), Integer.parseInt(array[0]), Integer.parseInt(array[1]), Integer.parseInt(array[2])));
+				p.sendMessage("Â§aCreated Mine Â§e"+args[1]);
+				minenames.add(args[1].toLowerCase());
+				creatingmine.remove(p.getName());
+				return false;
+			}
+			if (args[0].equalsIgnoreCase("delete")) {
+				if (args.length == 1) {
+					p.sendMessage("Â§cLike this: Â§e/mine delete <name>");
+					return false;
+				}
+				if (!minenames.contains(args[1].toLowerCase())){
+					p.sendMessage("Â§cThat mine does not exist! Â§e/mine list");
+					return false;
+				}
+				minenames.remove(args[1].toLowerCase());
+				minepoints.remove(args[1].toLowerCase()+"1");
+				minepoints.remove(args[1].toLowerCase()+"2");
+				p.sendMessage("Â§aMine Removed: Â§e"+args[1]);
+				return false;
+			}
+			if (args[0].equalsIgnoreCase("list")) {
+				p.sendMessage(minenames.toString());
+				return false;
+			}
+		}
+
+			
 		if (label.equalsIgnoreCase("cannon")) {
+
 			if (sender.hasPermission("kirithia.cannon")) {
 				if (args.length == 0) {
-					p.sendMessage("§cLike this: §e/cannon info");
-					p.sendMessage("§cLike this: §e/cannon delete");
-					p.sendMessage("§cLike this: §e/cannon create <x> <y> <z> <repeattimes> <optional:permission> <opt: message>");
+					p.sendMessage("Â§cLike this: Â§e/cannon info");
+					p.sendMessage("Â§cLike this: Â§e/cannon delete");
+					p.sendMessage("Â§cLike this: Â§e/cannon create <x> <y> <z> <repeattimes> <optional:permission> <opt: message>");
 					return false;
 				}
 				if (args[0].equalsIgnoreCase("create")) {
 					if (!p.getLocation().getBlock().getType()
 							.equals(Material.STONE_PLATE)) {
-						p.sendMessage("§cYou must be standing on a stone pressure plate!");
+						p.sendMessage("Â§cYou must be standing on a stone pressure plate!");
 						return false;
 					}
 					if (args.length < 4) {
-						p.sendMessage("§cLike this: §e/cannon create <x> <y> <z>");
+						p.sendMessage("Â§cLike this: Â§e/cannon create <x> <y> <z>");
 						return false;
 					}
 					String loc = p.getLocation().getBlockX() + ","
@@ -1134,7 +1274,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 							cannonsrep.put(loc, 1);
 						}
 					} catch (Exception e) {
-						p.sendMessage("§c<x> <y> <z> and <repeattimes> must be numbers! <repeattimes> must be a whole number!");
+						p.sendMessage("Â§c<x> <y> <z> and <repeattimes> must be numbers! <repeattimes> must be a whole number!");
 					}
 					if (args.length > 5) {
 						cannonpermreq.put(loc, args[5]);
@@ -1146,7 +1286,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 							msg = msg + args[i] + " ";
 							i++;
 						}
-						msg = msg.replace("&", "§");
+						msg = msg.replace("&", "Â§");
 						cannonmsg.put(loc, msg);
 
 					}
@@ -1160,10 +1300,10 @@ public class Kirithia extends JavaPlugin implements Listener {
 						cannonsrep.remove(loc);
 						cannonpermreq.remove(loc);
 						cannonmsg.remove(loc);
-						p.sendMessage("§cCannon deleted!");
+						p.sendMessage("Â§cCannon deleted!");
 						return false;
 					} else {
-						p.sendMessage("§cYou are not standing in a cannonous position! :L");
+						p.sendMessage("Â§cYou are not standing in a cannonous position! :L");
 						return false;
 					}
 				}
@@ -1172,21 +1312,21 @@ public class Kirithia extends JavaPlugin implements Listener {
 							+ p.getLocation().getBlockY() + ","
 							+ p.getLocation().getBlockZ();
 					if (cannons.containsKey(loc)) {
-						p.sendMessage("§aCannon Info: §eX:§a "
-								+ cannons.get(loc).getX() + " §eY:§a "
-								+ cannons.get(loc).getY() + " §eZ:§a "
-								+ cannons.get(loc).getZ() + " §eRepeats: §a"
+						p.sendMessage("Â§aCannon Info: Â§eX:Â§a "
+								+ cannons.get(loc).getX() + " Â§eY:Â§a "
+								+ cannons.get(loc).getY() + " Â§eZ:Â§a "
+								+ cannons.get(loc).getZ() + " Â§eRepeats: Â§a"
 								+ cannonsrep.get(loc));
 						if (cannonpermreq.containsKey(loc)) {
-							p.sendMessage("§ePermission: §a"
+							p.sendMessage("Â§ePermission: Â§a"
 									+ cannonpermreq.get(loc));
 						}
 						if (cannonmsg.containsKey(loc)) {
-							p.sendMessage("§eNo-Perm message: §r"
+							p.sendMessage("Â§eNo-Perm message: Â§r"
 									+ cannonmsg.get(loc));
 						}
 					} else {
-						p.sendMessage("§cYou are not standing in a cannonous position! :L");
+						p.sendMessage("Â§cYou are not standing in a cannonous position! :L");
 						return false;
 					}
 				}
@@ -1195,196 +1335,196 @@ public class Kirithia extends JavaPlugin implements Listener {
 		if (label.equalsIgnoreCase("admin")) {
 			if (sender.hasPermission("kirithia.admin")) {
 				if (args.length == 0) {
-					p.sendMessage("§e/admin chat/town/addxp <townname> <amt>");
+					p.sendMessage("Â§e/admin chat/town/addxp <townname> <amt>");
 					return false;
 				}
 				if (args[0].equalsIgnoreCase("addrep")) {
 					if (args.length < 3) {
-						p.sendMessage("§e/admin addrep <playername> <amount>");
+						p.sendMessage("Â§e/admin addrep <playername> <amount>");
 						return false;
 					}
 					if (kp.KP(args[1]) == null) {
-						p.sendMessage("§cThat player has never logged on...");
+						p.sendMessage("Â§cThat player has never logged on...");
 						return false;
 					}
-					KPlayer kpl = kp.KP(args[1]);
+					kpl = kp.KP(args[1]);
 					try {
 						kpl.addRep(Integer.parseInt(args[2]));
-						p.sendMessage("§aAdded " + args[2] + " Repuation to "
+						p.sendMessage("Â§aAdded " + args[2] + " Repuation to "
 								+ args[1]);
 						return false;
 					} catch (Exception e) {
-						p.sendMessage("§c<amount> must be a number!!!");
+						p.sendMessage("Â§c<amount> must be a number!!!");
 						return false;
 					}
 				}
 				if (args[0].equalsIgnoreCase("getrep")) {
 					if (args.length < 2) {
-						p.sendMessage("§e/admin addrep <playername>");
+						p.sendMessage("Â§e/admin addrep <playername>");
 						return false;
 					}
 					if (kp.KP(args[1]) == null) {
-						p.sendMessage("§cThat player has never logged on...");
+						p.sendMessage("Â§cThat player has never logged on...");
 						return false;
 					}
-					KPlayer kpl = kp.KP(args[1]);
-					p.sendMessage("§e" + args[1] + " §ahas §b" + kpl.getRep()
-							+ " §aRepuation");
+					kpl = kp.KP(args[1]);
+					p.sendMessage("Â§e" + args[1] + " Â§ahas Â§b" + kpl.getRep()
+							+ " Â§aRepuation");
 					return false;
 				}
 				if (args[0].equalsIgnoreCase("town")) {
 					if (args.length < 2) {
 
-						p.sendMessage("§7--------------§6Admin Towns Help§7----------------------");
-						p.sendMessage("§7-----------------------------------------------------");
-						p.sendMessage("- §e/admin town create <name>: §7Creates and selects a new.");
-						p.sendMessage("- §e/admin town sel <name>: §7Switches which town you use.");
-						p.sendMessage("- §e/admin town un/claim: §7Un/Claims land.");
-						p.sendMessage("- §e/admin town un/claim <r>: §7Un/Claims in a radius.");
-						p.sendMessage("- §e/admin town setmsg <m>: §7Sets welcome msg.");
-						p.sendMessage("- §e/admin town setpmsg <m>: §7Sets no perm msg.");
-						p.sendMessage("- §e/admin town perm: §7Sets player perms for town chunks.");
-						p.sendMessage("- §e/admin town silent true/false: §7No enter/exit msgs.");
-						p.sendMessage("- §e/admin town list: §7Lists admin town names.");
-						p.sendMessage("- §e/admin town info: §7Info on chunk and town.");
+						p.sendMessage("Â§7--------------Â§6Admin Towns HelpÂ§7----------------------");
+						p.sendMessage("Â§7-----------------------------------------------------");
+						p.sendMessage("- Â§e/admin town create <name>: Â§7Creates and selects a new.");
+						p.sendMessage("- Â§e/admin town sel <name>: Â§7Switches which town you use.");
+						p.sendMessage("- Â§e/admin town un/claim: Â§7Un/Claims land.");
+						p.sendMessage("- Â§e/admin town un/claim <r>: Â§7Un/Claims in a radius.");
+						p.sendMessage("- Â§e/admin town setmsg <m>: Â§7Sets welcome msg.");
+						p.sendMessage("- Â§e/admin town setpmsg <m>: Â§7Sets no perm msg.");
+						p.sendMessage("- Â§e/admin town perm: Â§7Sets player perms for town chunks.");
+						p.sendMessage("- Â§e/admin town silent true/false: Â§7No enter/exit msgs.");
+						p.sendMessage("- Â§e/admin town list: Â§7Lists admin town names.");
+						p.sendMessage("- Â§e/admin town info: Â§7Info on chunk and town.");
 						return false;
 
 					}
 					if (args[1].equalsIgnoreCase("silent")) {
 						if (!playerat.containsKey(p.getName())) {
-							p.sendMessage("§cYou must select a town!. /admin town sel <name>");
+							p.sendMessage("Â§cYou must select a town!. /admin town sel <name>");
 							return false;
 						}
 						if (args.length < 3) {
-							p.sendMessage("§cSilent true or false? /admin town silent true/false");
+							p.sendMessage("Â§cSilent true or false? /admin town silent true/false");
 							return false;
 						}
 						AdminTowns a = at.getTownbyName(playerat.get(p
 								.getName()));
 						if (args[2].equalsIgnoreCase("true")) {
 							a.setSilent(true);
-							p.sendMessage("§aSet Town silent to: " + args[2]);
+							p.sendMessage("Â§aSet Town silent to: " + args[2]);
 							return false;
 						}
 						if (args[2].equalsIgnoreCase("false")) {
 							a.setSilent(false);
-							p.sendMessage("§aSet Town silent to: " + args[2]);
+							p.sendMessage("Â§aSet Town silent to: " + args[2]);
 							return false;
 						}
 
-						p.sendMessage("§cMust be true or false!...");
+						p.sendMessage("Â§cMust be true or false!...");
 
 						return false;
 					}
 					if (args[1].equalsIgnoreCase("list")) {
-						p.sendMessage("§aAdmin Towns: §e"
+						p.sendMessage("Â§aAdmin Towns: Â§e"
 								+ at.getTownList().toString());
 					}
 					if (args[1].equalsIgnoreCase("perm")) {
 						if (!playerat.containsKey(p.getName())) {
-							p.sendMessage("§cYou must select a town!. /admin town sel <name>");
+							p.sendMessage("Â§cYou must select a town!. /admin town sel <name>");
 							return false;
 						}
 						AdminTowns a = at.getTownbyName(playerat.get(p
 								.getName()));
 						if (args.length < 3) {
-							p.sendMessage("§c/admin town perm deny <perm>");
-							p.sendMessage("§c/admin town perm allow <perm>");
-							p.sendMessage("§c/admin town perm list");
-							p.sendMessage("§c/admin town perm listall");
+							p.sendMessage("Â§c/admin town perm deny <perm>");
+							p.sendMessage("Â§c/admin town perm allow <perm>");
+							p.sendMessage("Â§c/admin town perm list");
+							p.sendMessage("Â§c/admin town perm listall");
 							return false;
 						}
 						if (args[2].equalsIgnoreCase("deny")) {
 							if (args.length < 4) {
-								p.sendMessage("§c/admin town perm deny <perm>");
-								p.sendMessage("§cNeed a perm! /admin town perm listall");
+								p.sendMessage("Â§c/admin town perm deny <perm>");
+								p.sendMessage("Â§cNeed a perm! /admin town perm listall");
 								return false;
 							}
 							if (!at.getAllPerms().contains(
 									args[3].toLowerCase())
 									&& !args[3].equalsIgnoreCase("all")) {
-								p.sendMessage("§cNot a real perm! /admin town perm listall");
+								p.sendMessage("Â§cNot a real perm! /admin town perm listall");
 								return false;
 							}
 							if (a.getDeniedPerms().contains(
 									args[3].toLowerCase())) {
-								p.sendMessage("§cThis perm is already denied.");
+								p.sendMessage("Â§cThis perm is already denied.");
 								return false;
 							}
 							a.addDeniedPerm(args[3].toLowerCase());
-							p.sendMessage("§a" + args[3] + " denied.");
+							p.sendMessage("Â§a" + args[3] + " denied.");
 							return false;
 						}
 						if (args[2].equalsIgnoreCase("allow")) {
 							if (args.length < 4) {
-								p.sendMessage("§c/admin town perm allow <perm>");
-								p.sendMessage("§cNeed a perm! /admin town perm listall");
+								p.sendMessage("Â§c/admin town perm allow <perm>");
+								p.sendMessage("Â§cNeed a perm! /admin town perm listall");
 								return false;
 							}
 							if (!at.getAllPerms().contains(
 									args[3].toLowerCase())
 									&& !args[3].equalsIgnoreCase("all")) {
-								p.sendMessage("§cNot a real perm! /admin town perm listall");
+								p.sendMessage("Â§cNot a real perm! /admin town perm listall");
 								return false;
 							}
 							if (!a.getDeniedPerms().contains(
 									args[3].toLowerCase())
 									&& !args[3].equalsIgnoreCase("all")) {
-								p.sendMessage("§cThis perm is already allowed.");
+								p.sendMessage("Â§cThis perm is already allowed.");
 								return false;
 							}
 							a.removeDeniedPerm(args[3].toLowerCase());
-							p.sendMessage("§a" + args[3] + " allowed again.");
+							p.sendMessage("Â§a" + args[3] + " allowed again.");
 							return false;
 						}
 						if (args[2].equalsIgnoreCase("list")) {
-							p.sendMessage("§aAll denied perms: "
+							p.sendMessage("Â§aAll denied perms: "
 									+ a.getDeniedPerms());
 						}
 						if (args[2].equalsIgnoreCase("listall")) {
-							p.sendMessage("§aAll perms: " + at.getAllPerms());
+							p.sendMessage("Â§aAll perms: " + at.getAllPerms());
 						}
 					}
 					if (args[1].equalsIgnoreCase("create")) {
 						if (args.length < 3) {
-							p.sendMessage("§cYou need to specify a town name. /admin town create <name>");
+							p.sendMessage("Â§cYou need to specify a town name. /admin town create <name>");
 							return false;
 						}
 						if (!at.canUseName(args[2])) {
-							p.sendMessage("§cAn admin town with that name already exists!");
+							p.sendMessage("Â§cAn admin town with that name already exists!");
 							return false;
 						}
 						at.createDefaultAT(new AdminTowns(args[2]));
 						playerat.put(p.getName(), args[2]);
-						p.sendMessage("§aAdmin Town: §e" + args[2]
-								+ " §acreated and selected!");
+						p.sendMessage("Â§aAdmin Town: Â§e" + args[2]
+								+ " Â§acreated and selected!");
 						return false;
 					}
 
 					if (args[1].equalsIgnoreCase("sel")) {
 						if (args.length < 3) {
-							p.sendMessage("§cYou need to specify a town to select. /admin town sel <name>");
+							p.sendMessage("Â§cYou need to specify a town to select. /admin town sel <name>");
 							return false;
 						}
 						if (at.getTownbyName(args[2]) == null) {
-							p.sendMessage("§cThe admin town \"" + args[2]
+							p.sendMessage("Â§cThe admin town \"" + args[2]
 									+ "\" does not exist! Try /admin town list");
 							return false;
 						}
 						AdminTowns a = at.getTownbyName(args[2]);
 						playerat.put(p.getName(), args[2]);
-						p.sendMessage("§aYou have selected the town: §e"
+						p.sendMessage("Â§aYou have selected the town: Â§e"
 								+ a.getName());
 						return false;
 					}
 
 					if (args[1].equalsIgnoreCase("setmsg")) {
 						if (!playerat.containsKey(p.getName())) {
-							p.sendMessage("§cYou must select a town!. /admin town sel <name>");
+							p.sendMessage("Â§cYou must select a town!. /admin town sel <name>");
 							return false;
 						}
 						if (args.length < 3) {
-							p.sendMessage("§cYou need to specify a message. /admin town setmsg <m>");
+							p.sendMessage("Â§cYou need to specify a message. /admin town setmsg <m>");
 							return false;
 						}
 						AdminTowns a = at.getTownbyName(playerat.get(p
@@ -1395,19 +1535,19 @@ public class Kirithia extends JavaPlugin implements Listener {
 							msg = msg + args[i] + " ";
 							i++;
 						}
-						msg = msg.replace("&", "§");
+						msg = msg.replace("&", "Â§");
 						a.setMessage(msg);
-						p.sendMessage("§aSet town welcome msg :)");
+						p.sendMessage("Â§aSet town welcome msg :)");
 						return false;
 					}
 
 					if (args[1].equalsIgnoreCase("setpmsg")) {
 						if (!playerat.containsKey(p.getName())) {
-							p.sendMessage("§cYou must select a town!. /admin town sel <name>");
+							p.sendMessage("Â§cYou must select a town!. /admin town sel <name>");
 							return false;
 						}
 						if (args.length < 3) {
-							p.sendMessage("§cYou need to specify a message. /admin town setpmsg <m>");
+							p.sendMessage("Â§cYou need to specify a message. /admin town setpmsg <m>");
 							return false;
 						}
 						AdminTowns a = at.getTownbyName(playerat.get(p
@@ -1418,15 +1558,15 @@ public class Kirithia extends JavaPlugin implements Listener {
 							msg = msg + args[i] + " ";
 							i++;
 						}
-						msg = msg.replace("&", "§");
+						msg = msg.replace("&", "Â§");
 						a.setMessage(msg);
-						p.sendMessage("§aSet town no permission msg :)");
+						p.sendMessage("Â§aSet town no permission msg :)");
 						return false;
 					}
 
 					if (args[1].equalsIgnoreCase("claim")) {
 						if (!playerat.containsKey(p.getName())) {
-							p.sendMessage("§cYou must select a town!. /admin town sel <name>");
+							p.sendMessage("Â§cYou must select a town!. /admin town sel <name>");
 							return false;
 						}
 						AdminTowns a = at.getTownbyName(playerat.get(p
@@ -1436,7 +1576,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 							try {
 								r = Integer.parseInt(args[2]);
 							} catch (Exception e) {
-								p.sendMessage("§c<r> must be a number!");
+								p.sendMessage("Â§c<r> must be a number!");
 								return false;
 							}
 							if (r == 0) {
@@ -1469,22 +1609,22 @@ public class Kirithia extends JavaPlugin implements Listener {
 								Z = Z - side;
 
 							}
-							p.sendMessage("§aClaimed §e"
+							p.sendMessage("Â§aClaimed Â§e"
 									+ (Math.pow(side, 2) - unclaimed)
-									+ " §achunks for the admin town:"
+									+ " Â§achunks for the admin town:"
 									+ a.getName());
-							p.sendMessage("§c"
+							p.sendMessage("Â§c"
 									+ unclaimed
-									+ " §cchunks were already claimed in some way or another.");
+									+ " Â§cchunks were already claimed in some way or another.");
 							return false;
 						}
 
 						if (ch.getType(p.getLocation().getChunk()
 								.getChunkSnapshot()) != "wild") {
-							p.sendMessage("§cYou can not claim this chunk.");
+							p.sendMessage("Â§cYou can not claim this chunk.");
 							return false;
 						}
-						p.sendMessage("§cChunk claimed.");
+						p.sendMessage("Â§cChunk claimed.");
 						at.addChunk(a, p.getLocation().getChunk());
 
 						ch.addChunk(p.getLocation().getChunk()
@@ -1492,7 +1632,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 					}
 					if (args[1].equalsIgnoreCase("unclaim")) {
 						if (!playerat.containsKey(p.getName())) {
-							p.sendMessage("§cYou must select a town!. /admin town sel <name>");
+							p.sendMessage("Â§cYou must select a town!. /admin town sel <name>");
 							return false;
 						}
 
@@ -1504,7 +1644,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 							try {
 								r = Integer.parseInt(args[2]);
 							} catch (Exception e) {
-								p.sendMessage("§c<r> must be a number!");
+								p.sendMessage("Â§c<r> must be a number!");
 								return false;
 							}
 							if (r == 0) {
@@ -1541,29 +1681,29 @@ public class Kirithia extends JavaPlugin implements Listener {
 								Z = Z - side;
 
 							}
-							p.sendMessage("§aUnclaimed §e"
+							p.sendMessage("Â§aUnclaimed Â§e"
 									+ (Math.pow(side, 2) - unable)
-									+ " §achunks from the admin town:"
+									+ " Â§achunks from the admin town:"
 									+ a.getName());
-							p.sendMessage("§c"
+							p.sendMessage("Â§c"
 									+ unable
-									+ " §cchunks were not claimed by this admin town.");
+									+ " Â§cchunks were not claimed by this admin town.");
 							return false;
 						}
 
 						if (at.getTownbyName(p.getLocation().getChunk().getX()
 								+ "," + p.getLocation().getChunk().getZ()) == null) {
-							p.sendMessage("§cThis admin town does not own this land.");
+							p.sendMessage("Â§cThis admin town does not own this land.");
 							return false;
 						}
 						if (!at.getTownbyName(
 								p.getLocation().getChunk().getX() + ","
 										+ p.getLocation().getChunk().getZ())
 								.equals(a)) {
-							p.sendMessage("§cThis admin town does not own this land.");
+							p.sendMessage("Â§cThis admin town does not own this land.");
 							return false;
 						}
-						p.sendMessage("§cChunk unclaimed.");
+						p.sendMessage("Â§cChunk unclaimed.");
 						at.removeChunk(a, p.getLocation().getChunk());
 
 						ch.removeChunk(p.getLocation().getChunk()
@@ -1573,26 +1713,26 @@ public class Kirithia extends JavaPlugin implements Listener {
 					if (args[1].equalsIgnoreCase("info")) {
 						if (ch.getType(p.getLocation().getChunk()
 								.getChunkSnapshot()) != "admin") {
-							p.sendMessage("§cThis is not an admin town chunk.");
+							p.sendMessage("Â§cThis is not an admin town chunk.");
 							return false;
 						}
 						AdminTowns a = at.getTownbyName(p.getLocation()
 								.getChunk().getX()
 								+ "," + p.getLocation().getChunk().getZ());
-						p.sendMessage("§a" + a.getName() + "'s Chunk.");
+						p.sendMessage("Â§a" + a.getName() + "'s Chunk.");
 					}
 					if (args[1].equalsIgnoreCase("delete")) {
 						if (!playerat.containsKey(p.getName())) {
-							p.sendMessage("§cYou must select a town!. /admin town sel <name>");
+							p.sendMessage("Â§cYou must select a town!. /admin town sel <name>");
 							return false;
 						}
 						AdminTowns a = at.getTownbyName(playerat.get(p
 								.getName()));
 
 						if (args.length == 2) {
-							p.sendMessage("§cAre you sure you want to do this? "
+							p.sendMessage("Â§cAre you sure you want to do this? "
 									+ a.getName() + " will be gone forever.");
-							p.sendMessage("§cType §4/admin town delete confirmyes§c if you are sure.");
+							p.sendMessage("Â§cType Â§4/admin town delete confirmyesÂ§c if you are sure.");
 						} else {
 							if (args[2].equalsIgnoreCase("confirmyes")) {
 
@@ -1604,7 +1744,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 								at.delete(a);
 								playerat.remove(p.getName());
-								p.sendMessage("§cAdmin Town deleted forever.");
+								p.sendMessage("Â§cAdmin Town deleted forever.");
 
 							}
 						}
@@ -1618,10 +1758,10 @@ public class Kirithia extends JavaPlugin implements Listener {
 						if (allowed.contains(p.getName())) {
 							if (usingadminchat.contains(p.getName())) {
 								usingadminchat.remove(p.getName());
-								p.sendMessage("§cYou are no longer talking in admin chat!");
+								p.sendMessage("Â§cYou are no longer talking in admin chat!");
 							} else {
 								usingadminchat.add(p.getName());
-								p.sendMessage("§aYou are now talking in admin chat!");
+								p.sendMessage("Â§aYou are now talking in admin chat!");
 							}
 						}
 					} else if (args.length > 1) {
@@ -1631,16 +1771,16 @@ public class Kirithia extends JavaPlugin implements Listener {
 										.getName();
 								if (!allowed.contains(name)) {
 									allowed.add(name);
-									p.sendMessage("§aYou added " + name
+									p.sendMessage("Â§aYou added " + name
 											+ " to admin chat!");
 								} else {
-									p.sendMessage("§c"
+									p.sendMessage("Â§c"
 											+ name
 											+ " is already in admin chat! Silly!");
 								}
 
 							} catch (Exception e) {
-								p.sendMessage("§cError.");
+								p.sendMessage("Â§cError.");
 							}
 						} else if (args[1].equalsIgnoreCase("remove")
 								&& args.length == 3) {
@@ -1649,10 +1789,10 @@ public class Kirithia extends JavaPlugin implements Listener {
 										.getName();
 								if (allowed.contains(name)) {
 									allowed.remove(name);
-									p.sendMessage("§aYou removed " + name
+									p.sendMessage("Â§aYou removed " + name
 											+ " from admin chat!");
 								} else {
-									p.sendMessage("§c" + name
+									p.sendMessage("Â§c" + name
 											+ " is not in admin chat! Silly!");
 								}
 								try {
@@ -1661,7 +1801,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 								}
 							} catch (Exception e) {
-								p.sendMessage("§cError.");
+								p.sendMessage("Â§cError.");
 							}
 						} else if (args[1].equalsIgnoreCase("list")) {
 							try {
@@ -1671,20 +1811,20 @@ public class Kirithia extends JavaPlugin implements Listener {
 								}
 								p.sendMessage(list);
 							} catch (Exception e) {
-								p.sendMessage("§cError.");
+								p.sendMessage("Â§cError.");
 							}
 						}
 					}
 				} else if (args[0].equalsIgnoreCase("addxp")) {
 					if (town.getTown(args[1].toLowerCase()) == null) {
-						p.sendMessage("§cThe town§e " + args[1]
-								+ " §cdoes not exist!");
+						p.sendMessage("Â§cThe townÂ§e " + args[1]
+								+ " Â§cdoes not exist!");
 						return false;
 					}
 					Towns t = town.getTown(args[1].toLowerCase());
 					if (t.addXP(Double.parseDouble(args[2]))) {
 						sendTownChat(null,
-								"§dThe Town has leveled up! " + t.getName()
+								"Â§dThe Town has leveled up! " + t.getName()
 										+ " is now level " + (int) t.getLevel()
 										+ "!", t);
 					}
@@ -1700,12 +1840,12 @@ public class Kirithia extends JavaPlugin implements Listener {
 				if (sender.hasPermission("kirithia.town")) {
 					if (args[0].equalsIgnoreCase("sethome")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "sethome")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 
@@ -1713,21 +1853,21 @@ public class Kirithia extends JavaPlugin implements Listener {
 							// check for if the chunk is in their town
 							Chunk c = p.getLocation().getChunk();
 							if (town.getTownofChunk(c) == null) {
-								p.sendMessage("§cYou can only set town homes in land your town owns!");
+								p.sendMessage("Â§cYou can only set town homes in land your town owns!");
 								return false;
 							}
 							if (!town.getTownofChunk(c).equals(t)) {
-								p.sendMessage("§cYou can only set town homes in land your town owns!");
+								p.sendMessage("Â§cYou can only set town homes in land your town owns!");
 								return false;
 							}
 
 							if (checkSafe(p.getLocation())) {
 								t.setHome(p.getLocation(), null);
-								p.sendMessage("§aYou set the §eTown Home§a to your location!");
+								p.sendMessage("Â§aYou set the Â§eTown HomeÂ§a to your location!");
 								return false;
 
 							} else {
-								p.sendMessage("§cThis is not a suitable location! This position may be dangerous.");
+								p.sendMessage("Â§cThis is not a suitable location! This position may be dangerous.");
 								return false;
 							}
 
@@ -1737,52 +1877,52 @@ public class Kirithia extends JavaPlugin implements Listener {
 						if (!t.anotherHome()
 								&& !t.getHomeNames().contains(
 										args[1].toLowerCase())) {
-							p.sendMessage("§cYour town already has it's limit of "
+							p.sendMessage("Â§cYour town already has it's limit of "
 									+ t.getAmountofHomes() + " homes.");
-							p.sendMessage("§cUse §e/town delhome §cto choose a home to remove.");
+							p.sendMessage("Â§cUse Â§e/town delhome Â§cto choose a home to remove.");
 							return false;
 						}
 						if (args.length < 2) {
 							// home commands
-							p.sendMessage("§cUse like this! §e/town sethome <name>");
+							p.sendMessage("Â§cUse like this! Â§e/town sethome <name>");
 
 							return false;
 						}
 						Chunk c = p.getLocation().getChunk();
 						if (town.getTownofChunk(c) == null) {
-							p.sendMessage("§cYou can only set town homes in land your town owns!");
+							p.sendMessage("Â§cYou can only set town homes in land your town owns!");
 							return false;
 						}
 						if (!town.getTownofChunk(c).equals(t)) {
-							p.sendMessage("§cYou can only set town homes in land your town owns!");
+							p.sendMessage("Â§cYou can only set town homes in land your town owns!");
 							return false;
 						}
 
 						if (checkSafe(p.getLocation())) {
 							t.setHome(p.getLocation(), args[1]);
-							p.sendMessage("§aYou set the §eTown Home§b "
-									+ args[1] + "§a to your location!");
+							p.sendMessage("Â§aYou set the Â§eTown HomeÂ§b "
+									+ args[1] + "Â§a to your location!");
 							return false;
 
 						} else {
-							p.sendMessage("§cThis is not a suitable location! This position may be dangerous.");
+							p.sendMessage("Â§cThis is not a suitable location! This position may be dangerous.");
 							return false;
 						}
 
 					}
 					if (args[0].equalsIgnoreCase("delhome")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "sethome")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 
 						if (t.getLevel() < 8) {
-							p.sendMessage("§cAs your town can only yet have one town home, your §e/town sethome §cwill overwrite it.");
+							p.sendMessage("Â§cAs your town can only yet have one town home, your Â§e/town sethome Â§cwill overwrite it.");
 							return false;
 						}
 						if (args.length < 2) {
@@ -1790,49 +1930,49 @@ public class Kirithia extends JavaPlugin implements Listener {
 							for (String name : t.getHomeNames()) {
 								str = str + name + " ";
 							}
-							p.sendMessage("§eTown homes: §b" + str);
-							p.sendMessage("§cUse like this: §e/town home <home-name>");
+							p.sendMessage("Â§eTown homes: Â§b" + str);
+							p.sendMessage("Â§cUse like this: Â§e/town home <home-name>");
 
 							return false;
 						}
 						if (!t.getHomeNames().contains(args[1].toLowerCase())) {
-							p.sendMessage("§e" + args[1]
-									+ " §cis not a valid town home!");
+							p.sendMessage("Â§e" + args[1]
+									+ " Â§cis not a valid town home!");
 							String str = "";
 							for (String name : t.getHomeNames()) {
 								str = str + name + " ";
 							}
-							p.sendMessage("§eTown homes: §b" + str);
+							p.sendMessage("Â§eTown homes: Â§b" + str);
 							return false;
 						}
 						t.deleteHome(args[1].toLowerCase());
-						p.sendMessage("§e" + args[1]
-								+ " §csuccessfully removed!");
+						p.sendMessage("Â§e" + args[1]
+								+ " Â§csuccessfully removed!");
 					}
 					if (args[0].equalsIgnoreCase("home")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "home")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 						if (!t.hasHome()) {
-							p.sendMessage("§cYour town does not have a home!");
+							p.sendMessage("Â§cYour town does not have a home!");
 							return false;
 						}
 						if (t.getLevel() < 8) {
 							if (!p.getWorld().equals(
 									t.getHomeLoc(null).getWorld())) {
-								p.sendMessage("§cYou are not in the same world!");
+								p.sendMessage("Â§cYou are not in the same world!");
 								return false;
 							}
 						}
 						if (!canNowUseSpell("home", p.getName())) {
 
-							p.sendMessage("§cYou must wait for "
+							p.sendMessage("Â§cYou must wait for "
 									+ toHourMinSec(getCooldownRemaining("home",
 											p.getName()))
 									+ " before you can use this spell again!");
@@ -1843,10 +1983,10 @@ public class Kirithia extends JavaPlugin implements Listener {
 							if (checkSafe(t.getHomeLoc(null))) {
 								// p.teleport(t.getHomeLoc(null));
 								if (casting.contains(p)) {
-									p.sendMessage("§cYou are already casting a spell!");
+									p.sendMessage("Â§cYou are already casting a spell!");
 									return false;
 								}
-								p.sendMessage("§eYou are casting a spell. Do not move or the spell will be cancelled!");
+								p.sendMessage("Â§eYou are casting a spell. Do not move or the spell will be cancelled!");
 
 								ParticleEffect.PORTAL.display(p.getLocation(),
 										0, 0, 0, 4, 400);
@@ -1855,7 +1995,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 										t.getHomeLoc(null), "the Town Home");
 								return false;
 							} else {
-								p.sendMessage("§cThe Home Location is not safe!");
+								p.sendMessage("Â§cThe Home Location is not safe!");
 								return false;
 							}
 						} else {
@@ -1864,26 +2004,26 @@ public class Kirithia extends JavaPlugin implements Listener {
 								for (String name : t.getHomeNames()) {
 									str = str + name + " ";
 								}
-								p.sendMessage("§eTown homes: §b" + str);
-								p.sendMessage("§cUse like this: §e/town home <home-name>");
+								p.sendMessage("Â§eTown homes: Â§b" + str);
+								p.sendMessage("Â§cUse like this: Â§e/town home <home-name>");
 
 								return false;
 							}
 							if (!t.getHomeNames().contains(
 									args[1].toLowerCase())) {
-								p.sendMessage("§e" + args[1]
-										+ " §cis not a valid town home!");
+								p.sendMessage("Â§e" + args[1]
+										+ " Â§cis not a valid town home!");
 								String str = "";
 								for (String name : t.getHomeNames()) {
 									str = str + name + " ";
 								}
-								p.sendMessage("§eTown homes: §b" + str);
+								p.sendMessage("Â§eTown homes: Â§b" + str);
 								return false;
 							}
 							if (!p.getWorld().equals(
 									t.getHomeLoc(args[1].toLowerCase())
 											.getWorld())) {
-								p.sendMessage("§cYou are not in the same world!");
+								p.sendMessage("Â§cYou are not in the same world!");
 
 								return false;
 							}
@@ -1892,10 +2032,10 @@ public class Kirithia extends JavaPlugin implements Listener {
 							if (checkSafe(t.getHomeLoc(args[1].toLowerCase()))) {
 								// p.teleport(t.getHomeLoc(null));
 								if (casting.contains(p)) {
-									p.sendMessage("§cYou are already casting a spell!");
+									p.sendMessage("Â§cYou are already casting a spell!");
 									return false;
 								}
-								p.sendMessage("§eYou are casting a spell. Do not move or the spell will be cancelled!");
+								p.sendMessage("Â§eYou are casting a spell. Do not move or the spell will be cancelled!");
 								ParticleEffect.PORTAL.display(p.getLocation(),
 										0, 0, 0, 4, 400);
 								homeAnimation(p, p.getLocation(), 0,
@@ -1903,7 +2043,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 										"the Town Home - " + args[1]);
 								return false;
 							} else {
-								p.sendMessage("§cThe Home Location is not safe!");
+								p.sendMessage("Â§cThe Home Location is not safe!");
 								return false;
 							}
 						}
@@ -1912,26 +2052,26 @@ public class Kirithia extends JavaPlugin implements Listener {
 					if (args[0].equalsIgnoreCase("perm")
 							|| args[0].equalsIgnoreCase("perms")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (args.length < 2) {
-							p.sendMessage("§7-----------------------------------------------------");
-							p.sendMessage("§7-------------------§6Town Permissions§7-------------------");
-							p.sendMessage("§7-----------------------------------------------------");
-							p.sendMessage("- §e/town perm §ainfo: §7Information about each permission.");
-							p.sendMessage("- §e/town perm §fdefault: §7Lists the default rank permissions.");
-							p.sendMessage("- §e/town perm §bmod: §7Lists the moderator rank permissions.");
-							p.sendMessage("- §e/town perm §cadmin: §7Lists the admin rank permissions.");
-							p.sendMessage("§7-----------------------------------------------------");
+							p.sendMessage("Â§7-----------------------------------------------------");
+							p.sendMessage("Â§7-------------------Â§6Town PermissionsÂ§7-------------------");
+							p.sendMessage("Â§7-----------------------------------------------------");
+							p.sendMessage("- Â§e/town perm Â§ainfo: Â§7Information about each permission.");
+							p.sendMessage("- Â§e/town perm Â§fdefault: Â§7Lists the default rank permissions.");
+							p.sendMessage("- Â§e/town perm Â§bmod: Â§7Lists the moderator rank permissions.");
+							p.sendMessage("- Â§e/town perm Â§cadmin: Â§7Lists the admin rank permissions.");
+							p.sendMessage("Â§7-----------------------------------------------------");
 							return false;
 						}
 						if (args[1].equalsIgnoreCase("admin")) {
 							if (args.length < 4) {
-								p.sendMessage("§cAdmin Permissions:");
-								p.sendMessage("§fGreen: §aAllowed§f, §fRed: §cDenied");
-								p.sendMessage("§7-----------------------------------------------------");
+								p.sendMessage("Â§cAdmin Permissions:");
+								p.sendMessage("Â§fGreen: Â§aAllowedÂ§f, Â§fRed: Â§cDenied");
+								p.sendMessage("Â§7-----------------------------------------------------");
 								String allperms = "invite kick motd promote demote c-u-laim claim setchunkmembers setchunkowners chunkaccess h-s-ome home allegiance";
 								String perms = t.getAdminPerms();
 								String rem = "";
@@ -1950,13 +2090,13 @@ public class Kirithia extends JavaPlugin implements Listener {
 										"unclaim");
 								allperms = allperms.replace("h-s-ome",
 										"sethome");
-								String finalmsg = "§a" + allowed + "§c"
+								String finalmsg = "Â§a" + allowed + "Â§c"
 										+ allperms;
 								while (finalmsg.contains("  ")) {
 									finalmsg = finalmsg.replace("  ", " ");
 								}
-								p.sendMessage("§bPermissions: " + finalmsg);
-								p.sendMessage("/§etown perm admin <permission> §aallow§f/§cdeny§f: §7Set permissions.");
+								p.sendMessage("Â§bPermissions: " + finalmsg);
+								p.sendMessage("/Â§etown perm admin <permission> Â§aallowÂ§f/Â§cdenyÂ§f: Â§7Set permissions.");
 								return false;
 							} else {
 
@@ -1978,21 +2118,21 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 										&& !args[2]
 												.equalsIgnoreCase("allegiance")) {
-									p.sendMessage("§cInvalid permission!");
-									p.sendMessage("§cPermissions: §binvite, kick, promote, demote, claim, unclaim, setchunkmembers, setchunkowners, chunkaccess, sethome, home, motd, allegiance");
+									p.sendMessage("Â§cInvalid permission!");
+									p.sendMessage("Â§cPermissions: Â§binvite, kick, promote, demote, claim, unclaim, setchunkmembers, setchunkowners, chunkaccess, sethome, home, motd, allegiance");
 									return false;
 								}
 								if (args.length > 3) {
 									if (!args[3].equalsIgnoreCase("allow")
 											&& !args[3]
 													.equalsIgnoreCase("deny")) {
-										p.sendMessage("§cUse like this: §e/town perm admin "
-												+ args[2] + " §aallow§f/§cdeny");
+										p.sendMessage("Â§cUse like this: Â§e/town perm admin "
+												+ args[2] + " Â§aallowÂ§f/Â§cdeny");
 										return false;
 									} else {
 										if (!p.getName().equalsIgnoreCase(
 												t.getOwner())) {
-											p.sendMessage("§cOnly the Town Mayor can use these commands.");
+											p.sendMessage("Â§cOnly the Town Mayor can use these commands.");
 											return false;
 										}
 										if (args[3].equalsIgnoreCase("allow")) {
@@ -2010,12 +2150,12 @@ public class Kirithia extends JavaPlugin implements Listener {
 												t.setAdminPerms(t
 														.getAdminPerms()
 														+ permission + " ");
-												p.sendMessage("§aAdmins permission allowed: §b"
+												p.sendMessage("Â§aAdmins permission allowed: Â§b"
 														+ args[2].toLowerCase());
 											} else {
-												p.sendMessage("§cAdmins already have the §b"
+												p.sendMessage("Â§cAdmins already have the Â§b"
 														+ args[2].toLowerCase()
-														+ "§c permission.");
+														+ "Â§c permission.");
 											}
 											return false;
 										}
@@ -2036,12 +2176,12 @@ public class Kirithia extends JavaPlugin implements Listener {
 												permss = permss.replace(
 														permission + " ", "");
 												t.setAdminPerms(permss);
-												p.sendMessage("§aAdmins permission §cdenied§a: §b"
+												p.sendMessage("Â§aAdmins permission Â§cdeniedÂ§a: Â§b"
 														+ args[2].toLowerCase());
 											} else {
-												p.sendMessage("§cAdmins don't have the §b"
+												p.sendMessage("Â§cAdmins don't have the Â§b"
 														+ args[2].toLowerCase()
-														+ "§c permission.");
+														+ "Â§c permission.");
 											}
 											return false;
 
@@ -2054,9 +2194,9 @@ public class Kirithia extends JavaPlugin implements Listener {
 						if (args[1].equalsIgnoreCase("mod")
 								|| args[1].equalsIgnoreCase("moderator")) {
 							if (args.length < 4) {
-								p.sendMessage("§bMod Permissions:");
-								p.sendMessage("§fGreen: §aAllowed§f, §fRed: §cDenied");
-								p.sendMessage("§7-----------------------------------------------------");
+								p.sendMessage("Â§bMod Permissions:");
+								p.sendMessage("Â§fGreen: Â§aAllowedÂ§f, Â§fRed: Â§cDenied");
+								p.sendMessage("Â§7-----------------------------------------------------");
 								String allperms = "invite kick motd promote demote c-u-laim claim setchunkmembers setchunkowners chunkaccess h-s-ome home allegiance";
 								String perms = t.getModPerms();
 								String rem = "";
@@ -2075,13 +2215,13 @@ public class Kirithia extends JavaPlugin implements Listener {
 										"unclaim");
 								allperms = allperms.replace("h-s-ome",
 										"sethome");
-								String finalmsg = "§a" + allowed + "§c"
+								String finalmsg = "Â§a" + allowed + "Â§c"
 										+ allperms;
 								while (finalmsg.contains("  ")) {
 									finalmsg = finalmsg.replace("  ", " ");
 								}
-								p.sendMessage("§bPermissions: " + finalmsg);
-								p.sendMessage("/§etown perm mod <permission> §aallow§f/§cdeny§f: §7Set permissions.");
+								p.sendMessage("Â§bPermissions: " + finalmsg);
+								p.sendMessage("/Â§etown perm mod <permission> Â§aallowÂ§f/Â§cdenyÂ§f: Â§7Set permissions.");
 								return false;
 							} else {
 
@@ -2103,21 +2243,21 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 										&& !args[2]
 												.equalsIgnoreCase("allegiance")) {
-									p.sendMessage("§cInvalid permission!");
-									p.sendMessage("§cPermissions: §binvite, kick, promote, demote, claim, unclaim, setchunkmembers, setchunkowners, chunkaccess, sethome, home, motd, allegiance");
+									p.sendMessage("Â§cInvalid permission!");
+									p.sendMessage("Â§cPermissions: Â§binvite, kick, promote, demote, claim, unclaim, setchunkmembers, setchunkowners, chunkaccess, sethome, home, motd, allegiance");
 									return false;
 								}
 								if (args.length > 3) {
 									if (!args[3].equalsIgnoreCase("allow")
 											&& !args[3]
 													.equalsIgnoreCase("deny")) {
-										p.sendMessage("§cUse like this: §e/town perm mod "
-												+ args[2] + " §aallow§f/§cdeny");
+										p.sendMessage("Â§cUse like this: Â§e/town perm mod "
+												+ args[2] + " Â§aallowÂ§f/Â§cdeny");
 										return false;
 									} else {
 										if (!p.getName().equalsIgnoreCase(
 												t.getOwner())) {
-											p.sendMessage("§cOnly the Town Mayor can use these commands.");
+											p.sendMessage("Â§cOnly the Town Mayor can use these commands.");
 											return false;
 										}
 										if (args[3].equalsIgnoreCase("allow")) {
@@ -2134,12 +2274,12 @@ public class Kirithia extends JavaPlugin implements Listener {
 													permission)) {
 												t.setModPerms(t.getModPerms()
 														+ permission + " ");
-												p.sendMessage("§aMods permission allowed: §b"
+												p.sendMessage("Â§aMods permission allowed: Â§b"
 														+ args[2].toLowerCase());
 											} else {
-												p.sendMessage("§cMods already have the §b"
+												p.sendMessage("Â§cMods already have the Â§b"
 														+ args[2].toLowerCase()
-														+ "§c permission.");
+														+ "Â§c permission.");
 											}
 											return false;
 										}
@@ -2159,12 +2299,12 @@ public class Kirithia extends JavaPlugin implements Listener {
 												permss = permss.replace(
 														permission + " ", "");
 												t.setModPerms(permss);
-												p.sendMessage("§aMods permission §cdenied§a: §b"
+												p.sendMessage("Â§aMods permission Â§cdeniedÂ§a: Â§b"
 														+ args[2].toLowerCase());
 											} else {
-												p.sendMessage("§cMods don't have the §b"
+												p.sendMessage("Â§cMods don't have the Â§b"
 														+ args[2].toLowerCase()
-														+ "§c permission.");
+														+ "Â§c permission.");
 											}
 											return false;
 
@@ -2176,9 +2316,9 @@ public class Kirithia extends JavaPlugin implements Listener {
 						}
 						if (args[1].equalsIgnoreCase("default")) {
 							if (args.length < 4) {
-								p.sendMessage("§eDefault Permissions:");
-								p.sendMessage("§fGreen: §aAllowed§f, §fRed: §cDenied");
-								p.sendMessage("§7-----------------------------------------------------");
+								p.sendMessage("Â§eDefault Permissions:");
+								p.sendMessage("Â§fGreen: Â§aAllowedÂ§f, Â§fRed: Â§cDenied");
+								p.sendMessage("Â§7-----------------------------------------------------");
 								String allperms = "invite kick motd promote demote c-u-laim claim setchunkmembers setchunkowners chunkaccess h-s-ome home allegiance";
 								String perms = t.getDefaultPerms();
 								String rem = "";
@@ -2197,13 +2337,13 @@ public class Kirithia extends JavaPlugin implements Listener {
 										"unclaim");
 								allperms = allperms.replace("h-s-ome",
 										"sethome");
-								String finalmsg = "§a" + allowed + "§c"
+								String finalmsg = "Â§a" + allowed + "Â§c"
 										+ allperms;
 								while (finalmsg.contains("  ")) {
 									finalmsg = finalmsg.replace("  ", " ");
 								}
-								p.sendMessage("§bPermissions: " + finalmsg);
-								p.sendMessage("/§etown perm default <permission> §aallow§f/§cdeny§f: §7Set permissions.");
+								p.sendMessage("Â§bPermissions: " + finalmsg);
+								p.sendMessage("/Â§etown perm default <permission> Â§aallowÂ§f/Â§cdenyÂ§f: Â§7Set permissions.");
 								return false;
 							} else {
 
@@ -2225,21 +2365,21 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 										&& !args[2]
 												.equalsIgnoreCase("allegiance")) {
-									p.sendMessage("§cInvalid permission!");
-									p.sendMessage("§cPermissions: §binvite, kick, promote, demote, claim, unclaim, setchunkmembers, setchunkowners, chunkaccess, sethome, home, motd, allegiance");
+									p.sendMessage("Â§cInvalid permission!");
+									p.sendMessage("Â§cPermissions: Â§binvite, kick, promote, demote, claim, unclaim, setchunkmembers, setchunkowners, chunkaccess, sethome, home, motd, allegiance");
 									return false;
 								}
 								if (args.length > 3) {
 									if (!args[3].equalsIgnoreCase("allow")
 											&& !args[3]
 													.equalsIgnoreCase("deny")) {
-										p.sendMessage("§cUse like this: §e/town perm default "
-												+ args[2] + " §aallow§f/§cdeny");
+										p.sendMessage("Â§cUse like this: Â§e/town perm default "
+												+ args[2] + " Â§aallowÂ§f/Â§cdeny");
 										return false;
 									} else {
 										if (!p.getName().equalsIgnoreCase(
 												t.getOwner())) {
-											p.sendMessage("§cOnly the Town Mayor can use these commands.");
+											p.sendMessage("Â§cOnly the Town Mayor can use these commands.");
 											return false;
 										}
 										if (args[3].equalsIgnoreCase("allow")) {
@@ -2257,12 +2397,12 @@ public class Kirithia extends JavaPlugin implements Listener {
 												t.setDefaultPerms(t
 														.getDefaultPerms()
 														+ permission + " ");
-												p.sendMessage("§aDefaults permission allowed: §b"
+												p.sendMessage("Â§aDefaults permission allowed: Â§b"
 														+ args[2].toLowerCase());
 											} else {
-												p.sendMessage("§cDefaults already have the §b"
+												p.sendMessage("Â§cDefaults already have the Â§b"
 														+ args[2].toLowerCase()
-														+ "§c permission.");
+														+ "Â§c permission.");
 											}
 											return false;
 										}
@@ -2283,12 +2423,12 @@ public class Kirithia extends JavaPlugin implements Listener {
 												permss = permss.replace(
 														permission + " ", "");
 												t.setDefaultPerms(permss);
-												p.sendMessage("§aDefaults permission §cdenied§a: §b"
+												p.sendMessage("Â§aDefaults permission Â§cdeniedÂ§a: Â§b"
 														+ args[2].toLowerCase());
 											} else {
-												p.sendMessage("§cDefaults don't have the §b"
+												p.sendMessage("Â§cDefaults don't have the Â§b"
 														+ args[2].toLowerCase()
-														+ "§c permission.");
+														+ "Â§c permission.");
 											}
 											return false;
 
@@ -2300,54 +2440,54 @@ public class Kirithia extends JavaPlugin implements Listener {
 						}
 						if (args[1].equalsIgnoreCase("info")) {
 							if (args.length < 3) {
-								p.sendMessage("§cUse like this: §e/town perm info §b<permission>");
-								p.sendMessage("§cPermissions: §binvite, kick, motd, promote, demote, claim, unclaim, setchunkmembers, setchunkowners, chunkaccess, sethome, home, allegiance");
+								p.sendMessage("Â§cUse like this: Â§e/town perm info Â§b<permission>");
+								p.sendMessage("Â§cPermissions: Â§binvite, kick, motd, promote, demote, claim, unclaim, setchunkmembers, setchunkowners, chunkaccess, sethome, home, allegiance");
 								// invitekickpromotedemotesetchunkmemberssetchunkownersclaimc-u-laimchunkaccessh-s-omehomemotdallegiance
 								return false;
 							} else {
 								switch (args[2]) {
 								case "invite":
-									p.sendMessage("§bInvite: §aAllows the group to invite other players to the town.");
+									p.sendMessage("Â§bInvite: Â§aAllows the group to invite other players to the town.");
 									break;
 								case "kick":
-									p.sendMessage("§bKick: §aAllows the group to remove other players from the town.");
+									p.sendMessage("Â§bKick: Â§aAllows the group to remove other players from the town.");
 									break;
 								case "motd":
-									p.sendMessage("§bMotD: §aAllows the group to set the Town Message of the Day.");
+									p.sendMessage("Â§bMotD: Â§aAllows the group to set the Town Message of the Day.");
 									break;
 								case "promote":
-									p.sendMessage("§bPromote: §aAllows the group to promote players in the town to any ranks below them.");
+									p.sendMessage("Â§bPromote: Â§aAllows the group to promote players in the town to any ranks below them.");
 									break;
 								case "demote":
-									p.sendMessage("§bDemote: §aAllows the group to demote other players who are a lower rank than themselves.");
+									p.sendMessage("Â§bDemote: Â§aAllows the group to demote other players who are a lower rank than themselves.");
 									break;
 								case "claim":
-									p.sendMessage("§bClaim: §aAllows the group to claim land for the town.");
+									p.sendMessage("Â§bClaim: Â§aAllows the group to claim land for the town.");
 									break;
 								case "unclaim":
-									p.sendMessage("§bUnclaim: §aAllows the group to unclaim ANY town land!");
+									p.sendMessage("Â§bUnclaim: Â§aAllows the group to unclaim ANY town land!");
 									break;
 								case "setchunkmembers":
-									p.sendMessage("§bSetChunkMembers: §aAllows the group to add or remove members of any town chunk.");
+									p.sendMessage("Â§bSetChunkMembers: Â§aAllows the group to add or remove members of any town chunk.");
 									break;
 								case "setchunkowners":
-									p.sendMessage("§bSetChunkOwners: §aAllows the group to add or remove owners of any town chunk.");
+									p.sendMessage("Â§bSetChunkOwners: Â§aAllows the group to add or remove owners of any town chunk.");
 									break;
 								case "chunkaccess":
-									p.sendMessage("§bChunkAccess: §aAllows the group access to anything in ALL town land.");
+									p.sendMessage("Â§bChunkAccess: Â§aAllows the group access to anything in ALL town land.");
 									break;
 								case "sethome":
-									p.sendMessage("§bSetHome: §aAllows the group to set and delete homes for the town.");
+									p.sendMessage("Â§bSetHome: Â§aAllows the group to set and delete homes for the town.");
 									break;
 								case "home":
-									p.sendMessage("§bHome: §aAllows the group to travel to the town home with /town home.");
+									p.sendMessage("Â§bHome: Â§aAllows the group to travel to the town home with /town home.");
 									break;
 								case "allegiance":
-									p.sendMessage("§bAllegiance: §aAllows the group to enemy, ally or set a neutral standing with other towns.");
+									p.sendMessage("Â§bAllegiance: Â§aAllows the group to enemy, ally or set a neutral standing with other towns.");
 									break;
 								default:
-									p.sendMessage("§cInvalid permission!");
-									p.sendMessage("§cPermissions: §binvite, kick, promote, demote, claim, unclaim, setchunkmembers, setchunkowners, chunkaccess, sethome, home, allegiance");
+									p.sendMessage("Â§cInvalid permission!");
+									p.sendMessage("Â§cPermissions: Â§binvite, kick, promote, demote, claim, unclaim, setchunkmembers, setchunkowners, chunkaccess, sethome, home, allegiance");
 									break;
 								}
 							}
@@ -2358,24 +2498,24 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 						// only when setting
 						if (!t.getOwner().equalsIgnoreCase(p.getName())) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 						return false;
 					}
 					if (args[0].equalsIgnoreCase("setmotd")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "motd")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 
 						if (args.length < 2) {
-							p.sendMessage("§cUse like this! §e/town motd <message>");
+							p.sendMessage("Â§cUse like this! Â§e/town motd <message>");
 
 							return false;
 						}
@@ -2386,42 +2526,42 @@ public class Kirithia extends JavaPlugin implements Listener {
 							i++;
 						}
 						t.setMOTD(MOTD);
-						sendTownChat(null, "§d" + p.getName()
+						sendTownChat(null, "Â§d" + p.getName()
 								+ " changed the MOTD: " + MOTD, t);
 						return false;
 					}
 					if (args[0].equalsIgnoreCase("motd")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
-						p.sendMessage("§dMOTD: " + t.getMOTD());
+						p.sendMessage("Â§dMOTD: " + t.getMOTD());
 						return false;
 					}
 					if (args[0].equalsIgnoreCase("create")) {
 
 						if (town.getTownofPlayer(p.getName()) != null) {
-							p.sendMessage("§cYou're already in a town! §e/town leave");
+							p.sendMessage("Â§cYou're already in a town! Â§e/town leave");
 							return false;
 						}
 						if (args.length < 2) {
-							p.sendMessage("§cUse like this! §e/town create <name>");
+							p.sendMessage("Â§cUse like this! Â§e/town create <name>");
 							return false;
 						}
 						if (kp.KP(p.getName()).getRep() < 2000) {
-							p.sendMessage("§cYou need at least §b2000 §cReputation to create a town! §e/repuation");
+							p.sendMessage("Â§cYou need at least Â§b2000 Â§cReputation to create a town! Â§e/repuation");
 							return false;
 						}
 						// go over rep, make sure it's ok TODO
 						String attemptedname = args[1].replace(" ", "");
 
 						if (attemptedname.length() > 20) {
-							p.sendMessage("§cTown name must not exceed 20 characters (letters)!");
+							p.sendMessage("Â§cTown name must not exceed 20 characters (letters)!");
 							return false;
 						}
 						if (attemptedname.length() < 3) {
-							p.sendMessage("§cTown name must be atleast 3 characters (letters)!");
+							p.sendMessage("Â§cTown name must be atleast 3 characters (letters)!");
 							return false;
 						}
 						String namecheck = attemptedname.replace("_",
@@ -2429,7 +2569,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 						if (!namecheck.matches("[a-zA-Z]+")) {
 
-							p.sendMessage("§cTown name must only contain letters (with _ for any spaces)!");
+							p.sendMessage("Â§cTown name must only contain letters (with _ for any spaces)!");
 							return false;
 						}
 						String finalname = namecheck.replace(
@@ -2446,32 +2586,32 @@ public class Kirithia extends JavaPlugin implements Listener {
 							town.createTown(new Towns(finalname, p.getName()));
 							allyreq.put(finalname, new ArrayList<String>());
 							neutralreq.put(finalname, new ArrayList<String>());
-							p.sendMessage("§aTown: "
-									+ "§e"
+							p.sendMessage("Â§aTown: "
+									+ "Â§e"
 									+ finalname
-									+ " §acreated successfully! §aUse §e/town help §afor commands!");
+									+ " Â§acreated successfully! Â§aUse Â§e/town help Â§afor commands!");
 							kp.KP(p.getName()).subRep(2000);
 							// TODO make sure rep is okay!!
 							return false;
 						} else {
-							p.sendMessage("§cThis town name has already been used!");
+							p.sendMessage("Â§cThis town name has already been used!");
 							return false;
 						}
 
 					}
 					if (args[0].equalsIgnoreCase("invite")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "invite")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 
 						if (args.length < 2) {
-							p.sendMessage("§cUse like this! §e/town invite <name>");
+							p.sendMessage("Â§cUse like this! Â§e/town invite <name>");
 							return false;
 						}
 
@@ -2480,41 +2620,41 @@ public class Kirithia extends JavaPlugin implements Listener {
 							if (town.getTownofPlayer(invited.getName()) == null) {
 								invitePlayer(p, invited,
 										town.getTownofPlayer(p.getName()));
-								p.sendMessage("§aYou invited §e"
+								p.sendMessage("Â§aYou invited Â§e"
 										+ invited.getName()
-										+ " §ato your town.");
+										+ " Â§ato your town.");
 								return false;
 							} else {
 								if (town.getTownofPlayer(p.getName())
 										.equals(town.getTownofPlayer(invited
 												.getName()))) {
-									p.sendMessage("§e"
+									p.sendMessage("Â§e"
 											+ invited.getName()
-											+ " §cis already a member of your town!");
+											+ " Â§cis already a member of your town!");
 									return false;
 								}
-								p.sendMessage("§e" + invited.getName()
-										+ " §cis already a member of a town!");
+								p.sendMessage("Â§e" + invited.getName()
+										+ " Â§cis already a member of a town!");
 								return false;
 							}
 						} else {
-							p.sendMessage("§c'" + args[1] + "' is not online.");
+							p.sendMessage("Â§c'" + args[1] + "' is not online.");
 							return false;
 						}
 
 					}
 					if (args[0].equalsIgnoreCase("join")) {
 						if (town.getTownofPlayer(p.getName()) != null) {
-							p.sendMessage("§cYou're already in a town! §e/town leave");
+							p.sendMessage("Â§cYou're already in a town! Â§e/town leave");
 							return false;
 						}
 						if (args.length < 2) {
-							p.sendMessage("§cUse like this! §e/town join <name>");
+							p.sendMessage("Â§cUse like this! Â§e/town join <name>");
 							return false;
 						}
 						if (town.getTown(args[1].toLowerCase()) == null) {
-							p.sendMessage("§cThe town§e " + args[1]
-									+ " §cdoes not exist!");
+							p.sendMessage("Â§cThe townÂ§e " + args[1]
+									+ " Â§cdoes not exist!");
 							return false;
 						}
 						Towns t = town.getTown(args[1].toLowerCase());
@@ -2523,48 +2663,48 @@ public class Kirithia extends JavaPlugin implements Listener {
 								if (invited.get(p.getName()).contains(
 										t.getName())) {
 									town.addMember(t, p.getName());
-									sendTownChat(null, "§d" + p.getName()
+									sendTownChat(null, "Â§d" + p.getName()
 											+ " has joined the town!", t);
 									return false;
 								}
-								p.sendMessage("§cYou must be invited to this town!");
+								p.sendMessage("Â§cYou must be invited to this town!");
 							}
-							p.sendMessage("§cYou must be invited to this town!");
+							p.sendMessage("Â§cYou must be invited to this town!");
 						} else {
 							town.addMember(t, p.getName());
-							sendTownChat(null, "§d" + p.getName()
+							sendTownChat(null, "Â§d" + p.getName()
 									+ " has joined the town!", t);
 						}
 						return false;
 					}
 					if (args[0].equalsIgnoreCase("claim")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "claim")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 						if (town.getTownofChunk(p.getLocation().getChunk()) != null) {
 							if (town.getTownofChunk(p.getLocation().getChunk())
 									.equals(t)) {
-								p.sendMessage("§cYour town already owns this land.");
+								p.sendMessage("Â§cYour town already owns this land.");
 								return false;
 
 							}
-							p.sendMessage("§cYou can not claim this chunk.");
+							p.sendMessage("Â§cYou can not claim this chunk.");
 							return false;
 						}
 						if (ch.getType(p.getLocation().getChunk()
 								.getChunkSnapshot()) != "wild") {
-							p.sendMessage("§cYou can not claim this chunk.");
+							p.sendMessage("Â§cYou can not claim this chunk.");
 							return false;
 						}
 						if (!t.anotherChunk()) {
-							p.sendMessage("§cYour town is at it's size limit. A higher town level means more chunks can be claimed.");
+							p.sendMessage("Â§cYour town is at it's size limit. A higher town level means more chunks can be claimed.");
 							return false;
 						}
 						town.addChunk(t, p.getLocation().getChunk());
@@ -2573,7 +2713,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 								.getChunkSnapshot(), "town");
 
 						for (Player pl : t.getOnlineStaff()) {
-							pl.sendMessage("§d" + p.getName()
+							pl.sendMessage("Â§d" + p.getName()
 									+ " claimed a chunk for your town at X:"
 									+ (int) p.getLocation().getX() + " Z:"
 									+ (int) p.getLocation().getZ());
@@ -2583,26 +2723,26 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 					if (args[0].equalsIgnoreCase("unclaim")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "unclaim")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 						if (town.getTownofChunk(p.getLocation().getChunk()) != null) {
 							if (!town
 									.getTownofChunk(p.getLocation().getChunk())
 									.equals(t)) {
-								p.sendMessage("§cYour town does not own this land!");
+								p.sendMessage("Â§cYour town does not own this land!");
 								return false;
 
 							}
 
 						} else {
-							p.sendMessage("§cYour town does not own this land!");
+							p.sendMessage("Â§cYour town does not own this land!");
 							return false;
 						}
 
@@ -2611,7 +2751,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 								.getChunkSnapshot());
 
 						for (Player pl : t.getOnlineStaff()) {
-							pl.sendMessage("§d" + p.getName()
+							pl.sendMessage("Â§d" + p.getName()
 									+ " unclaimed a chunk from your town at X:"
 									+ (int) p.getLocation().getX() + " Z:"
 									+ (int) p.getLocation().getZ());
@@ -2621,35 +2761,35 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 					if (args[0].equalsIgnoreCase("chat")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						if (usingtownchat.contains(p.getName())) {
 							usingtownchat.remove(p.getName());
-							p.sendMessage("§cYou are no longer speaking in Town Chat!");
+							p.sendMessage("Â§cYou are no longer speaking in Town Chat!");
 							return false;
 						} else {
 							usingtownchat.add(p.getName());
 							if (usingadminchat.contains(p.getName())) {
 								usingadminchat.remove(p.getName());
 							}
-							p.sendMessage("§aYou are now speaking in Town Chat!");
+							p.sendMessage("Â§aYou are now speaking in Town Chat!");
 							return false;
 						}
 
 					}
 					if (args[0].equalsIgnoreCase("kick")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "kick")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 						if (args.length < 2) {
-							p.sendMessage("§cUse like this! §e/town kick <name>");
+							p.sendMessage("Â§cUse like this! Â§e/town kick <name>");
 							return false;
 						}
 						String rank = "default";
@@ -2663,7 +2803,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 							rank = "a";
 						}
 						if (args[1].equalsIgnoreCase(p.getName())) {
-							p.sendMessage("§cYou can not kick yourself...");
+							p.sendMessage("Â§cYou can not kick yourself...");
 							return false;
 						}
 						boolean find = false;
@@ -2671,7 +2811,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 							if (name.equalsIgnoreCase(args[1])) {
 								find = true;
 								if (rank.equals("default")) {
-									p.sendMessage("§cYou can not kick a player the same rank as you or higher.");
+									p.sendMessage("Â§cYou can not kick a player the same rank as you or higher.");
 									return false;
 								}
 								if (rank.equals("m")
@@ -2679,18 +2819,18 @@ public class Kirithia extends JavaPlugin implements Listener {
 												|| t.getAdmins().contains(name) || t
 												.getOwner().equalsIgnoreCase(
 														name))) {
-									p.sendMessage("§cYou can not kick a player the same rank as you or higher.");
+									p.sendMessage("Â§cYou can not kick a player the same rank as you or higher.");
 									return false;
 								}
 								if (rank.equals("a")
 										&& (t.getAdmins().contains(name) || t
 												.getOwner().equalsIgnoreCase(
 														name))) {
-									p.sendMessage("§cYou can not kick a player the same rank as you or higher.");
+									p.sendMessage("Â§cYou can not kick a player the same rank as you or higher.");
 									return false;
 								}
 								town.removeMember(t, name);
-								sendTownChat(null, "§d" + name
+								sendTownChat(null, "Â§d" + name
 										+ " has been kicked from the town by "
 										+ p.getName() + "!", t);
 								OfflinePlayer pl = Bukkit
@@ -2698,14 +2838,14 @@ public class Kirithia extends JavaPlugin implements Listener {
 								if (pl != null) {
 									if (pl.isOnline()) {
 										((Player) pl)
-												.sendMessage("§cYou have been kicked from the town by "
+												.sendMessage("Â§cYou have been kicked from the town by "
 														+ p.getName() + "!");
 									}
 								}
 							}
 						}
 						if (!find) {
-							p.sendMessage("§cThe player '" + args[1]
+							p.sendMessage("Â§cThe player '" + args[1]
 									+ "' is not a member of your town.");
 							return false;
 						}
@@ -2713,20 +2853,20 @@ public class Kirithia extends JavaPlugin implements Listener {
 					}
 					if (args[0].equalsIgnoreCase("givemayor")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.getOwner().equalsIgnoreCase(p.getName())) {
-							p.sendMessage("§cOnly the Mayor can do this!");
+							p.sendMessage("Â§cOnly the Mayor can do this!");
 							return false;
 						}
 						if (args.length < 2) {
-							p.sendMessage("§cUse like this! §e/town givemayor <name>");
+							p.sendMessage("Â§cUse like this! Â§e/town givemayor <name>");
 							return false;
 						}
 						if (args[1].equalsIgnoreCase(p.getName())) {
-							p.sendMessage("§cYou already are the Mayor...");
+							p.sendMessage("Â§cYou already are the Mayor...");
 							return false;
 						}
 						boolean find = false;
@@ -2741,21 +2881,21 @@ public class Kirithia extends JavaPlugin implements Listener {
 								}
 								t.setOwner(name);
 								t.addAdmin(p.getName());
-								sendTownChat(null, "§d" + name
+								sendTownChat(null, "Â§d" + name
 										+ " is the new Mayor of the town!", t);
-								p.sendMessage("§cYou are now an admin of what used to be your town.");
+								p.sendMessage("Â§cYou are now an admin of what used to be your town.");
 								OfflinePlayer pl = Bukkit
 										.getOfflinePlayer(name);
 								if (pl != null) {
 									if (pl.isOnline()) {
 										((Player) pl)
-												.sendMessage("§aYou are now the Mayor! Use §e/town help §afor useful commands!");
+												.sendMessage("Â§aYou are now the Mayor! Use Â§e/town help Â§afor useful commands!");
 									}
 								}
 							}
 						}
 						if (!find) {
-							p.sendMessage("§cThe player '" + args[1]
+							p.sendMessage("Â§cThe player '" + args[1]
 									+ "' is not a member of your town.");
 							return false;
 						}
@@ -2763,16 +2903,16 @@ public class Kirithia extends JavaPlugin implements Listener {
 					}
 					if (args[0].equalsIgnoreCase("promote")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "promote")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 						if (args.length < 2) {
-							p.sendMessage("§cUse like this! §e/town promote <name>");
+							p.sendMessage("Â§cUse like this! Â§e/town promote <name>");
 							return false;
 						}
 						String rank = "default";
@@ -2784,11 +2924,11 @@ public class Kirithia extends JavaPlugin implements Listener {
 							rank = "a";
 						}
 						if (args[1].equalsIgnoreCase(p.getName())) {
-							p.sendMessage("§cYou can not promote yourself...");
+							p.sendMessage("Â§cYou can not promote yourself...");
 							return false;
 						}
 						if (rank == "default") {
-							p.sendMessage("§cYou can not promote a player to, or at the same rank as you or higher.");
+							p.sendMessage("Â§cYou can not promote a player to, or at the same rank as you or higher.");
 							return false;
 						}
 						boolean find = false;
@@ -2796,7 +2936,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 							if (name.equalsIgnoreCase(args[1])) {
 								find = true;
 								if (t.getAdmins().contains(name)) {
-									p.sendMessage("§c" + name
+									p.sendMessage("Â§c" + name
 											+ " is already an admin.");
 									return false;
 								}
@@ -2804,7 +2944,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 										&& (t.getAdmins().contains(name) || t
 												.getOwner().equalsIgnoreCase(
 														name))) {
-									p.sendMessage("§cYou can not promote a player to, or at the same rank as you or higher.");
+									p.sendMessage("Â§cYou can not promote a player to, or at the same rank as you or higher.");
 									return false;
 								}
 								rank = "Moderator";
@@ -2814,7 +2954,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 									t.addAdmin(name);
 									rank = "Admin";
 								}
-								sendTownChat(null, "§d" + name
+								sendTownChat(null, "Â§d" + name
 										+ " has been promoted to Town " + rank
 										+ " by " + p.getName() + "!", t);
 								OfflinePlayer pl = Bukkit
@@ -2822,14 +2962,14 @@ public class Kirithia extends JavaPlugin implements Listener {
 								if (pl != null) {
 									if (pl.isOnline()) {
 										((Player) pl)
-												.sendMessage("§aYou have been promoted to Town "
+												.sendMessage("Â§aYou have been promoted to Town "
 														+ rank + "!");
 									}
 								}
 							}
 						}
 						if (!find) {
-							p.sendMessage("§cThe player '" + args[1]
+							p.sendMessage("Â§cThe player '" + args[1]
 									+ "' is not a member of your town.");
 							return false;
 						}
@@ -2837,25 +2977,25 @@ public class Kirithia extends JavaPlugin implements Listener {
 					}
 					if (args[0].equalsIgnoreCase("demote")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "demote")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 						if (args.length < 2) {
-							p.sendMessage("§cUse like this! §e/town demote <name>");
+							p.sendMessage("Â§cUse like this! Â§e/town demote <name>");
 							return false;
 						}
 						if (args[1].equalsIgnoreCase(p.getName())) {
-							p.sendMessage("§cYou can not demote yourself...");
+							p.sendMessage("Â§cYou can not demote yourself...");
 							return false;
 						}
 						if (!t.getAdmins().contains(p.getName())
 								&& !t.getOwner().equalsIgnoreCase(p.getName())) {
-							p.sendMessage("§cYou can not demote a player at the same rank as you or higher.");
+							p.sendMessage("Â§cYou can not demote a player at the same rank as you or higher.");
 							return false;
 						}
 						boolean find = false;
@@ -2865,7 +3005,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 								if (t.getAdmins().contains(name)
 										&& !t.getOwner().equalsIgnoreCase(
 												p.getName())) {
-									p.sendMessage("§cYou can not demote a player at the same rank as you or higher.");
+									p.sendMessage("Â§cYou can not demote a player at the same rank as you or higher.");
 									return false;
 								}
 
@@ -2877,10 +3017,10 @@ public class Kirithia extends JavaPlugin implements Listener {
 									t.addModerator(name);
 									rank = "Moderator";
 								} else {
-									p.sendMessage("§cThis player is a Town Default...");
+									p.sendMessage("Â§cThis player is a Town Default...");
 									return false;
 								}
-								sendTownChat(null, "§d" + name
+								sendTownChat(null, "Â§d" + name
 										+ " has been demoted to Town " + rank
 										+ " by " + p.getName() + ".", t);
 								OfflinePlayer pl = Bukkit
@@ -2888,14 +3028,14 @@ public class Kirithia extends JavaPlugin implements Listener {
 								if (pl != null) {
 									if (pl.isOnline()) {
 										((Player) pl)
-												.sendMessage("§aYou have been demoted to Town "
+												.sendMessage("Â§aYou have been demoted to Town "
 														+ rank + ".");
 									}
 								}
 							}
 						}
 						if (!find) {
-							p.sendMessage("§cThe player '" + args[1]
+							p.sendMessage("Â§cThe player '" + args[1]
 									+ "' is not a member of your town.");
 							return false;
 						}
@@ -2903,37 +3043,37 @@ public class Kirithia extends JavaPlugin implements Listener {
 					}
 					if (args[0].equalsIgnoreCase("leave")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (t.getOwner().equalsIgnoreCase(p.getName())) {
-							p.sendMessage("§cYou must pass on the Mayor title before leaving - §e/town givemayor <name>, §cOr you can §4/town disband!");
+							p.sendMessage("Â§cYou must pass on the Mayor title before leaving - Â§e/town givemayor <name>, Â§cOr you can Â§4/town disband!");
 							return false;
 						}
 						town.removeMember(t, p.getName());
-						sendTownChat(null, "§d" + p.getName()
+						sendTownChat(null, "Â§d" + p.getName()
 								+ " has left the town!", t);
-						p.sendMessage("§cYou are no longer part of "
+						p.sendMessage("Â§cYou are no longer part of "
 								+ t.getName() + "!");
 						return false;
 					}
 					if (args[0].equalsIgnoreCase("disband")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.getOwner().equalsIgnoreCase(p.getName())) {
-							p.sendMessage("§cOnly the Mayor can do this!");
+							p.sendMessage("Â§cOnly the Mayor can do this!");
 							return false;
 						}
 						if (args.length == 1) {
-							p.sendMessage("§cAre you sure you want to do this? The whole town will be gone forever.");
-							p.sendMessage("§cType §4/town disband confirmyes§c if you are sure.");
+							p.sendMessage("Â§cAre you sure you want to do this? The whole town will be gone forever.");
+							p.sendMessage("Â§cType Â§4/town disband confirmyesÂ§c if you are sure.");
 						} else {
 							if (args[1].equalsIgnoreCase("confirmyes")) {
-								sendTownChat(null, "§c§l" + t.getName()
+								sendTownChat(null, "Â§cÂ§l" + t.getName()
 										+ " has been disbanded by the Mayor ("
 										+ t.getOwner()
 										+ "). You are no longer in a town.", t);
@@ -2945,7 +3085,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 								neutralreq.remove(t.getName());
 								town.deleteTown(t);
 
-								p.sendMessage("§cTown deleted forever.");
+								p.sendMessage("Â§cTown deleted forever.");
 
 							}
 						}
@@ -2955,17 +3095,17 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 						if (args.length == 1
 								&& town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cPlease specify a town name! §e/town info <name>§c.");
+							p.sendMessage("Â§cPlease specify a town name! Â§e/town info <name>Â§c.");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (args.length == 1) {
-							p.sendMessage("§7--------------------------------------------------");
-							p.sendMessage("§bTown Name: §6" + t.getName());
-							p.sendMessage("§7--------------------------------------------------");
-							p.sendMessage("§bLevel: §6" + (int) t.getLevel());
-							p.sendMessage("§bSize: §6" + t.getChunks().size());
-							p.sendMessage("§bPopulation: §6"
+							p.sendMessage("Â§7--------------------------------------------------");
+							p.sendMessage("Â§bTown Name: Â§6" + t.getName());
+							p.sendMessage("Â§7--------------------------------------------------");
+							p.sendMessage("Â§bLevel: Â§6" + (int) t.getLevel());
+							p.sendMessage("Â§bSize: Â§6" + t.getChunks().size());
+							p.sendMessage("Â§bPopulation: Â§6"
 									+ t.getMembers().size());
 							String allies;
 							if (t.getAllies().isEmpty()) {
@@ -2983,8 +3123,8 @@ public class Kirithia extends JavaPlugin implements Listener {
 								enemies = enemies.replace("[", "");
 								enemies = enemies.replace("]", "");
 							}
-							p.sendMessage("§bAllies: §a" + allies);
-							p.sendMessage("§bEnemies: §c" + enemies);
+							p.sendMessage("Â§bAllies: Â§a" + allies);
+							p.sendMessage("Â§bEnemies: Â§c" + enemies);
 							String online = "";
 							String offline = "";
 							boolean firstonline = true;
@@ -2992,14 +3132,14 @@ public class Kirithia extends JavaPlugin implements Listener {
 							for (String name : t.getMembers()) {
 								String finalname = "";
 								if (t.getOwner().equalsIgnoreCase(name)) {
-									finalname = "§5[§6Mayor§5] ";
+									finalname = "Â§5[Â§6MayorÂ§5] ";
 								}
 								if (t.getAdmins().contains(name)) {
-									finalname = "§5[§cA§5] ";
+									finalname = "Â§5[Â§cAÂ§5] ";
 
 								}
 								if (t.getModerators().contains(name)) {
-									finalname = "§5[§bM§5] ";
+									finalname = "Â§5[Â§bMÂ§5] ";
 
 								}
 								OfflinePlayer pl = Bukkit
@@ -3007,46 +3147,46 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 								if (pl.isOnline()) {
 									if (firstonline) {
-										online = finalname + "§a" + name;
+										online = finalname + "Â§a" + name;
 										firstonline = false;
 									} else {
 										online = online + ", " + finalname
-												+ "§a" + name;
+												+ "Â§a" + name;
 									}
 								} else {
 									if (firstoffline) {
-										offline = finalname + "§c" + name;
+										offline = finalname + "Â§c" + name;
 										firstoffline = false;
 									} else {
 										offline = offline + ", " + finalname
-												+ "§c" + name;
+												+ "Â§c" + name;
 									}
 								}
 							}
-							p.sendMessage("§bOnline Members: " + online);
-							p.sendMessage("§bOffline Members: " + offline);
-							p.sendMessage("§bMOTD: §6\"" + t.getMOTD() + "\"");
+							p.sendMessage("Â§bOnline Members: " + online);
+							p.sendMessage("Â§bOffline Members: " + offline);
+							p.sendMessage("Â§bMOTD: Â§6\"" + t.getMOTD() + "\"");
 							if (t.isOpen()) {
 
-								p.sendMessage("§bJoin Status: §6Open to all.");
+								p.sendMessage("Â§bJoin Status: Â§6Open to all.");
 							} else {
-								p.sendMessage("§bJoin Status: §6Invite only.");
+								p.sendMessage("Â§bJoin Status: Â§6Invite only.");
 							}
-							p.sendMessage("§7--------------------------------------------------");
+							p.sendMessage("Â§7--------------------------------------------------");
 							return false;
 						}
 						if (town.getTown(args[1].toLowerCase()) == null) {
-							p.sendMessage("§cThe town§e " + args[1]
-									+ " §cdoes not exist!");
+							p.sendMessage("Â§cThe townÂ§e " + args[1]
+									+ " Â§cdoes not exist!");
 							return false;
 						}
 						t = town.getTown(args[1].toLowerCase());
-						p.sendMessage("§7--------------------------------------------------");
-						p.sendMessage("§bTown Name: §6" + t.getName());
-						p.sendMessage("§7--------------------------------------------------");
-						p.sendMessage("§bLevel: §6" + (int) t.getLevel());
-						p.sendMessage("§bSize: §6" + t.getChunks().size());
-						p.sendMessage("§bPopulation: §6"
+						p.sendMessage("Â§7--------------------------------------------------");
+						p.sendMessage("Â§bTown Name: Â§6" + t.getName());
+						p.sendMessage("Â§7--------------------------------------------------");
+						p.sendMessage("Â§bLevel: Â§6" + (int) t.getLevel());
+						p.sendMessage("Â§bSize: Â§6" + t.getChunks().size());
+						p.sendMessage("Â§bPopulation: Â§6"
 								+ t.getMembers().size());
 						String allies;
 						if (t.getAllies().isEmpty()) {
@@ -3064,8 +3204,8 @@ public class Kirithia extends JavaPlugin implements Listener {
 							enemies = enemies.replace("[", "");
 							enemies = enemies.replace("]", "");
 						}
-						p.sendMessage("§bAllies: §a" + allies);
-						p.sendMessage("§bEnemies: §c" + enemies);
+						p.sendMessage("Â§bAllies: Â§a" + allies);
+						p.sendMessage("Â§bEnemies: Â§c" + enemies);
 						String online = "";
 						String offline = "";
 						boolean firstonline = true;
@@ -3073,111 +3213,111 @@ public class Kirithia extends JavaPlugin implements Listener {
 						for (String name : t.getMembers()) {
 							String finalname = "";
 							if (t.getOwner().equalsIgnoreCase(name)) {
-								finalname = "§5[§6Mayor§5] ";
+								finalname = "Â§5[Â§6MayorÂ§5] ";
 							}
 							if (t.getAdmins().contains(name)) {
-								finalname = "§5[§cA§5] ";
+								finalname = "Â§5[Â§cAÂ§5] ";
 
 							}
 							if (t.getModerators().contains(name)) {
-								finalname = "§5[§bM§5] ";
+								finalname = "Â§5[Â§bMÂ§5] ";
 
 							}
 
 							OfflinePlayer pl = Bukkit.getOfflinePlayer(name);
 							if (pl.isOnline()) {
 								if (firstonline) {
-									online = finalname + "§a" + name;
+									online = finalname + "Â§a" + name;
 									firstonline = false;
 								} else {
-									online = online + ", " + finalname + "§a"
+									online = online + ", " + finalname + "Â§a"
 											+ name;
 								}
 							} else {
 								if (firstoffline) {
-									offline = finalname + "§c" + name;
+									offline = finalname + "Â§c" + name;
 									firstoffline = false;
 								} else {
-									offline = offline + ", " + finalname + "§c"
+									offline = offline + ", " + finalname + "Â§c"
 											+ name;
 								}
 							}
 						}
-						p.sendMessage("§bOnline Members: " + online);
-						p.sendMessage("§bOffline Members: " + offline);
-						p.sendMessage("§bMOTD: §6\"" + t.getMOTD() + "\"");
+						p.sendMessage("Â§bOnline Members: " + online);
+						p.sendMessage("Â§bOffline Members: " + offline);
+						p.sendMessage("Â§bMOTD: Â§6\"" + t.getMOTD() + "\"");
 						if (t.isOpen()) {
 
-							p.sendMessage("§bJoin Status: §6Open to all.");
+							p.sendMessage("Â§bJoin Status: Â§6Open to all.");
 						} else {
-							p.sendMessage("§bJoin Status: §6Invite only.");
+							p.sendMessage("Â§bJoin Status: Â§6Invite only.");
 						}
-						p.sendMessage("§7--------------------------------------------------");
+						p.sendMessage("Â§7--------------------------------------------------");
 						return false;
 					}
 					if (args[0].equalsIgnoreCase("help")) {
 						if (args.length == 1) {
-							p.sendMessage("§7-----------------------------------------------------");
-							p.sendMessage("§7--------------§6Kirithian Towns Help (1/4)§7--------------");
-							p.sendMessage("§7-----------------------------------------------------");
-							p.sendMessage("- §e/town info <name>: §7Displays information on a town.");
-							p.sendMessage("- §e/town create <name>: §7Creates a town.");
-							p.sendMessage("- §e/town invite <name>: §7Invites a player to your town.");
-							p.sendMessage("- §e/town join <name>: §7Request membership of a town.");
-							p.sendMessage("- §e/town leave: §7Leaves a town.");
-							p.sendMessage("- §e/town chat: §7Toggles town chat.");
-							p.sendMessage("- §7Type §b/town help 2§7 for the next page of help.");
+							p.sendMessage("Â§7-----------------------------------------------------");
+							p.sendMessage("Â§7--------------Â§6Kirithian Towns Help (1/4)Â§7--------------");
+							p.sendMessage("Â§7-----------------------------------------------------");
+							p.sendMessage("- Â§e/town info <name>: Â§7Displays information on a town.");
+							p.sendMessage("- Â§e/town create <name>: Â§7Creates a town.");
+							p.sendMessage("- Â§e/town invite <name>: Â§7Invites a player to your town.");
+							p.sendMessage("- Â§e/town join <name>: Â§7Request membership of a town.");
+							p.sendMessage("- Â§e/town leave: Â§7Leaves a town.");
+							p.sendMessage("- Â§e/town chat: Â§7Toggles town chat.");
+							p.sendMessage("- Â§7Type Â§b/town help 2Â§7 for the next page of help.");
 							return false;
 						} else {
 							switch (args[1]) {
 							case "1":
-								p.sendMessage("§7-----------------------------------------------------");
-								p.sendMessage("§7--------------§6Kirithian Towns Help (1/4)§7--------------");
-								p.sendMessage("§7-----------------------------------------------------");
-								p.sendMessage("- §e/town info <name>: §7Displays information on a town.");
-								p.sendMessage("- §e/town create <name>: §7Creates a town.");
-								p.sendMessage("- §e/town invite <name>: §7Invites a player to your town.");
-								p.sendMessage("- §e/town join <name>: §7Request membership of a town.");
-								p.sendMessage("- §e/town leave: §7Leaves a town.");
-								p.sendMessage("- §e/town chat: §7Toggles town chat.");
-								p.sendMessage("- §7Type §b/town help 2§7 for the next page of help.");
+								p.sendMessage("Â§7-----------------------------------------------------");
+								p.sendMessage("Â§7--------------Â§6Kirithian Towns Help (1/4)Â§7--------------");
+								p.sendMessage("Â§7-----------------------------------------------------");
+								p.sendMessage("- Â§e/town info <name>: Â§7Displays information on a town.");
+								p.sendMessage("- Â§e/town create <name>: Â§7Creates a town.");
+								p.sendMessage("- Â§e/town invite <name>: Â§7Invites a player to your town.");
+								p.sendMessage("- Â§e/town join <name>: Â§7Request membership of a town.");
+								p.sendMessage("- Â§e/town leave: Â§7Leaves a town.");
+								p.sendMessage("- Â§e/town chat: Â§7Toggles town chat.");
+								p.sendMessage("- Â§7Type Â§b/town help 2Â§7 for the next page of help.");
 								return false;
 							case "2":
-								p.sendMessage("§7-----------------------------------------------------");
-								p.sendMessage("§7--------------§6Kirithian Towns Help (2/4)§7--------------");
-								p.sendMessage("§7-----------------------------------------------------");
-								p.sendMessage("- §e/town motd: §7Displays the town Message of the Day.");
-								p.sendMessage("- §e/town setmotd <message>: §7Sets the town MotD.");
-								p.sendMessage("- §e/town home: §7Town home teleportation commands.");
-								p.sendMessage("- §e/town sethome: §7Set a town teleportation point.");
-								p.sendMessage("- §e/town level: §7Displays information about town XP.");
-								p.sendMessage("- §e/town kick <name>: §7Kick a player out of the town.");
-								p.sendMessage("- §7Type §b/town help 3§7 for the next page of help.");
+								p.sendMessage("Â§7-----------------------------------------------------");
+								p.sendMessage("Â§7--------------Â§6Kirithian Towns Help (2/4)Â§7--------------");
+								p.sendMessage("Â§7-----------------------------------------------------");
+								p.sendMessage("- Â§e/town motd: Â§7Displays the town Message of the Day.");
+								p.sendMessage("- Â§e/town setmotd <message>: Â§7Sets the town MotD.");
+								p.sendMessage("- Â§e/town home: Â§7Town home teleportation commands.");
+								p.sendMessage("- Â§e/town sethome: Â§7Set a town teleportation point.");
+								p.sendMessage("- Â§e/town level: Â§7Displays information about town XP.");
+								p.sendMessage("- Â§e/town kick <name>: Â§7Kick a player out of the town.");
+								p.sendMessage("- Â§7Type Â§b/town help 3Â§7 for the next page of help.");
 								return false;
 							case "3":
-								p.sendMessage("§7-----------------------------------------------------");
-								p.sendMessage("§7--------------§6Kirithian Towns Help (3/4)§7--------------");
-								p.sendMessage("§7-----------------------------------------------------");
-								p.sendMessage("- §e/town claim: §7Claim a chunk of land for the town.");
-								p.sendMessage("- §e/town unclaim: §7Unclaim a chunk.");
-								p.sendMessage("- §e/town chunk: §7Town chunk commands.");
-								p.sendMessage("- §e/town perm: §7Town permissions.");
-								p.sendMessage("- §e/town promote <name>: §7Promote a player in the town.");
-								p.sendMessage("- §e/town demote <name>: §7Demote a player in the town.");
-								p.sendMessage("- §7Type §b/town help 4§7 for the last page of help.");
+								p.sendMessage("Â§7-----------------------------------------------------");
+								p.sendMessage("Â§7--------------Â§6Kirithian Towns Help (3/4)Â§7--------------");
+								p.sendMessage("Â§7-----------------------------------------------------");
+								p.sendMessage("- Â§e/town claim: Â§7Claim a chunk of land for the town.");
+								p.sendMessage("- Â§e/town unclaim: Â§7Unclaim a chunk.");
+								p.sendMessage("- Â§e/town chunk: Â§7Town chunk commands.");
+								p.sendMessage("- Â§e/town perm: Â§7Town permissions.");
+								p.sendMessage("- Â§e/town promote <name>: Â§7Promote a player in the town.");
+								p.sendMessage("- Â§e/town demote <name>: Â§7Demote a player in the town.");
+								p.sendMessage("- Â§7Type Â§b/town help 4Â§7 for the last page of help.");
 								return false;
 							case "4":
-								p.sendMessage("§7-----------------------------------------------------");
-								p.sendMessage("§7--------------§6Kirithian Towns Help (4/4)§7--------------");
-								p.sendMessage("§7-----------------------------------------------------");
-								p.sendMessage("- §e/town ally <name>: §7Request an alliance with a town.");
-								p.sendMessage("- §e/town neutral <name>: §7Request neutrality with a town.");
-								p.sendMessage("- §e/town enemy <name>: §7Declare war on a town.");
-								p.sendMessage("- §e/town givemayor <name>: §7Pass on the mayor title.");
-								p.sendMessage("- §e/town disband: §7Delete the town forever.");
+								p.sendMessage("Â§7-----------------------------------------------------");
+								p.sendMessage("Â§7--------------Â§6Kirithian Towns Help (4/4)Â§7--------------");
+								p.sendMessage("Â§7-----------------------------------------------------");
+								p.sendMessage("- Â§e/town ally <name>: Â§7Request an alliance with a town.");
+								p.sendMessage("- Â§e/town neutral <name>: Â§7Request neutrality with a town.");
+								p.sendMessage("- Â§e/town enemy <name>: Â§7Declare war on a town.");
+								p.sendMessage("- Â§e/town givemayor <name>: Â§7Pass on the mayor title.");
+								p.sendMessage("- Â§e/town disband: Â§7Delete the town forever.");
 								return false;
 							default:
-								p.sendMessage("§cInvalid Town Help Page Number.");
+								p.sendMessage("Â§cInvalid Town Help Page Number.");
 								return false;
 							}
 						}
@@ -3185,7 +3325,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 					}
 					if (args[0].equalsIgnoreCase("chunk")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
@@ -3196,51 +3336,51 @@ public class Kirithia extends JavaPlugin implements Listener {
 									if (!town.getTownofChunk(
 											p.getLocation().getChunk()).equals(
 											t)) {
-										p.sendMessage("§cYour town does not own this land!");
+										p.sendMessage("Â§cYour town does not own this land!");
 										return false;
 
 									}
 
 								} else {
-									p.sendMessage("§cYour town does not own this land!");
+									p.sendMessage("Â§cYour town does not own this land!");
 									return false;
 								}
 								String coords = p.getLocation().getChunk()
 										.getX()
 										+ ","
 										+ p.getLocation().getChunk().getZ();
-								p.sendMessage("§6Chunk at X:§b"
+								p.sendMessage("Â§6Chunk at X:Â§b"
 										+ p.getLocation().getBlockX()
-										+ " §6Z:§b"
+										+ " Â§6Z:Â§b"
 										+ p.getLocation().getBlockZ());
-								String members = " §e";
+								String members = " Â§e";
 								if (t.getChunkMembers(coords) != null) {
 									for (String name : t
 											.getChunkMembers(coords)) {
 										members = members + name + " ";
 									}
 								}
-								if (members == " §e") {
-									members = " §enone";
+								if (members == " Â§e") {
+									members = " Â§enone";
 								}
-								String owners = " §e";
+								String owners = " Â§e";
 								if (t.getChunkOwners(coords) != null) {
 									for (String name : t.getChunkOwners(coords)) {
 										owners = owners + name + " ";
 									}
 								}
-								if (owners == " §e") {
-									owners = " §enone";
+								if (owners == " Â§e") {
+									owners = " Â§enone";
 								}
 
-								p.sendMessage("§bMembers:" + members + "");
-								p.sendMessage("§bOwners:" + owners + "");
+								p.sendMessage("Â§bMembers:" + members + "");
+								p.sendMessage("Â§bOwners:" + owners + "");
 								return false;
 
 							}
 							if (args[1].equalsIgnoreCase("addmember")) {
 								if (!t.hasPermission(p, "setchunkmembers")) {
-									p.sendMessage("§cYou do not have permission to do that for your town.");
+									p.sendMessage("Â§cYou do not have permission to do that for your town.");
 									return false;
 								}
 								if (town.getTownofChunk(p.getLocation()
@@ -3248,17 +3388,17 @@ public class Kirithia extends JavaPlugin implements Listener {
 									if (!town.getTownofChunk(
 											p.getLocation().getChunk()).equals(
 											t)) {
-										p.sendMessage("§cYour town does not own this land!");
+										p.sendMessage("Â§cYour town does not own this land!");
 										return false;
 
 									}
 
 								} else {
-									p.sendMessage("§cYour town does not own this land!");
+									p.sendMessage("Â§cYour town does not own this land!");
 									return false;
 								}
 								if (args.length < 3) {
-									p.sendMessage("§cUse like this! §e/town chunk addmember <name>");
+									p.sendMessage("Â§cUse like this! Â§e/town chunk addmember <name>");
 									return false;
 								}
 								OfflinePlayer pl = null;
@@ -3271,7 +3411,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 								}
 								if (!find) {
-									p.sendMessage("§cThe player '" + args[2]
+									p.sendMessage("Â§cThe player '" + args[2]
 											+ "' is not a member of your town.");
 									return false;
 								}
@@ -3280,19 +3420,19 @@ public class Kirithia extends JavaPlugin implements Listener {
 										+ ","
 										+ p.getLocation().getChunk().getZ();
 								if (t.isChunkMember(coords, pl.getName())) {
-									p.sendMessage("§e"
+									p.sendMessage("Â§e"
 											+ args[2]
-											+ " §cis already a member of this chunk!");
+											+ " Â§cis already a member of this chunk!");
 									return false;
 								}
 								t.addChunkMember(coords, pl.getName());
-								p.sendMessage("§e" + args[2]
-										+ "§a is now a member of this chunk.");
+								p.sendMessage("Â§e" + args[2]
+										+ "Â§a is now a member of this chunk.");
 								return false;
 							}
 							if (args[1].equalsIgnoreCase("addowner")) {
 								if (!t.hasPermission(p, "setchunkowners")) {
-									p.sendMessage("§cYou do not have permission to do that for your town.");
+									p.sendMessage("Â§cYou do not have permission to do that for your town.");
 									return false;
 								}
 								if (town.getTownofChunk(p.getLocation()
@@ -3300,17 +3440,17 @@ public class Kirithia extends JavaPlugin implements Listener {
 									if (!town.getTownofChunk(
 											p.getLocation().getChunk()).equals(
 											t)) {
-										p.sendMessage("§cYour town does not own this land!");
+										p.sendMessage("Â§cYour town does not own this land!");
 										return false;
 
 									}
 
 								} else {
-									p.sendMessage("§cYour town does not own this land!");
+									p.sendMessage("Â§cYour town does not own this land!");
 									return false;
 								}
 								if (args.length < 3) {
-									p.sendMessage("§cUse like this! §e/town chunk addowner <name>");
+									p.sendMessage("Â§cUse like this! Â§e/town chunk addowner <name>");
 									return false;
 								}
 								OfflinePlayer pl = null;
@@ -3323,7 +3463,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 								}
 								if (!find) {
-									p.sendMessage("§cThe player '" + args[2]
+									p.sendMessage("Â§cThe player '" + args[2]
 											+ "' is not a member of your town.");
 									return false;
 								}
@@ -3332,19 +3472,19 @@ public class Kirithia extends JavaPlugin implements Listener {
 										+ ","
 										+ p.getLocation().getChunk().getZ();
 								if (t.isChunkOwner(coords, pl.getName())) {
-									p.sendMessage("§e"
+									p.sendMessage("Â§e"
 											+ args[2]
-											+ " §cis already an owner of this chunk!");
+											+ " Â§cis already an owner of this chunk!");
 									return false;
 								}
 								t.addChunkOwner(coords, pl.getName());
-								p.sendMessage("§e" + args[2]
-										+ "§a is now an owner of this chunk.");
+								p.sendMessage("Â§e" + args[2]
+										+ "Â§a is now an owner of this chunk.");
 								return false;
 							}
 							if (args[1].equalsIgnoreCase("removemember")) {
 								if (!t.hasPermission(p, "setchunkmembers")) {
-									p.sendMessage("§cYou do not have permission to do that for your town.");
+									p.sendMessage("Â§cYou do not have permission to do that for your town.");
 									return false;
 								}
 								if (town.getTownofChunk(p.getLocation()
@@ -3352,17 +3492,17 @@ public class Kirithia extends JavaPlugin implements Listener {
 									if (!town.getTownofChunk(
 											p.getLocation().getChunk()).equals(
 											t)) {
-										p.sendMessage("§cYour town does not own this land!");
+										p.sendMessage("Â§cYour town does not own this land!");
 										return false;
 
 									}
 
 								} else {
-									p.sendMessage("§cYour town does not own this land!");
+									p.sendMessage("Â§cYour town does not own this land!");
 									return false;
 								}
 								if (args.length < 3) {
-									p.sendMessage("§cUse like this! §e/town chunk removemember <name>");
+									p.sendMessage("Â§cUse like this! Â§e/town chunk removemember <name>");
 									return false;
 								}
 								boolean find = false;
@@ -3375,7 +3515,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 								}
 								if (!find) {
-									p.sendMessage("§cThe player '" + args[2]
+									p.sendMessage("Â§cThe player '" + args[2]
 											+ "' is not a member of your town.");
 									return false;
 								}
@@ -3384,22 +3524,22 @@ public class Kirithia extends JavaPlugin implements Listener {
 										+ ","
 										+ p.getLocation().getChunk().getZ();
 								if (!t.isChunkMember(coords, pl.getName())) {
-									p.sendMessage("§e"
+									p.sendMessage("Â§e"
 											+ args[2]
-											+ " §cis not a member of this chunk!");
+											+ " Â§cis not a member of this chunk!");
 									return false;
 								}
 								t.removeChunkMember(coords, pl.getName());
 								ch.removeChunk(p.getLocation().getChunk()
 										.getChunkSnapshot());
-								p.sendMessage("§e"
+								p.sendMessage("Â§e"
 										+ args[2]
-										+ " §ais no longer a member of this chunk!");
+										+ " Â§ais no longer a member of this chunk!");
 								return false;
 							}
 							if (args[1].equalsIgnoreCase("removeowner")) {
 								if (!t.hasPermission(p, "setchunkowners")) {
-									p.sendMessage("§cYou do not have permission to do that for your town.");
+									p.sendMessage("Â§cYou do not have permission to do that for your town.");
 									return false;
 								}
 								if (town.getTownofChunk(p.getLocation()
@@ -3407,17 +3547,17 @@ public class Kirithia extends JavaPlugin implements Listener {
 									if (!town.getTownofChunk(
 											p.getLocation().getChunk()).equals(
 											t)) {
-										p.sendMessage("§cYour town does not own this land!");
+										p.sendMessage("Â§cYour town does not own this land!");
 										return false;
 
 									}
 
 								} else {
-									p.sendMessage("§cYour town does not own this land!");
+									p.sendMessage("Â§cYour town does not own this land!");
 									return false;
 								}
 								if (args.length < 3) {
-									p.sendMessage("§cUse like this! §e/town chunk removeowner <name>");
+									p.sendMessage("Â§cUse like this! Â§e/town chunk removeowner <name>");
 									return false;
 								}
 								boolean find = false;
@@ -3430,7 +3570,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 								}
 								if (!find) {
-									p.sendMessage("§cThe player '" + args[2]
+									p.sendMessage("Â§cThe player '" + args[2]
 											+ "' is not a member of your town.");
 									return false;
 								}
@@ -3439,17 +3579,17 @@ public class Kirithia extends JavaPlugin implements Listener {
 										+ ","
 										+ p.getLocation().getChunk().getZ();
 								if (!t.isChunkMember(coords, pl.getName())) {
-									p.sendMessage("§e"
+									p.sendMessage("Â§e"
 											+ args[2]
-											+ " §cis not an owner of this chunk!");
+											+ " Â§cis not an owner of this chunk!");
 									return false;
 								}
 								t.removeChunkMember(coords, pl.getName());
 								ch.removeChunk(p.getLocation().getChunk()
 										.getChunkSnapshot());
-								p.sendMessage("§e"
+								p.sendMessage("Â§e"
 										+ args[2]
-										+ " §ais no longer an owner of this chunk!");
+										+ " Â§ais no longer an owner of this chunk!");
 								return false;
 							}
 
@@ -3458,26 +3598,26 @@ public class Kirithia extends JavaPlugin implements Listener {
 								if (args.length > 2) {
 									if (args[2].equalsIgnoreCase("info")) {
 										if (args.length < 4) {
-											p.sendMessage("§cUse like this: §e/town chunk perm info §b<permission>");
-											p.sendMessage("§cPermissions: §bchests, build, use");
+											p.sendMessage("Â§cUse like this: Â§e/town chunk perm info Â§b<permission>");
+											p.sendMessage("Â§cPermissions: Â§bchests, build, use");
 											return false;
 										} else {
 											switch (args[3]) {
 											case "use":
-												p.sendMessage("§bUse: §aAllows the use of buttons, levers, doors etc.");
+												p.sendMessage("Â§bUse: Â§aAllows the use of buttons, levers, doors etc.");
 												return false;
 
 											case "chests":
-												p.sendMessage("§bChests: §aAllows opening of unlocked chests.");
+												p.sendMessage("Â§bChests: Â§aAllows opening of unlocked chests.");
 												return false;
 
 											case "build":
-												p.sendMessage("§bBuild: §aAllows placing and removing of blocks.");
+												p.sendMessage("Â§bBuild: Â§aAllows placing and removing of blocks.");
 												return false;
 
 											default:
-												p.sendMessage("§cInvalid permission!");
-												p.sendMessage("§cPermissions: §bchests, build, use");
+												p.sendMessage("Â§cInvalid permission!");
+												p.sendMessage("Â§cPermissions: Â§bchests, build, use");
 												return false;
 
 											}
@@ -3486,9 +3626,9 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 									if (args[2].equalsIgnoreCase("default")) {
 										if (args.length < 5) {
-											p.sendMessage("§bChunk Default Permissions:");
-											p.sendMessage("§fGreen: §aAllowed§f, §fRed: §cDenied");
-											p.sendMessage("§7-----------------------------------------------------");
+											p.sendMessage("Â§bChunk Default Permissions:");
+											p.sendMessage("Â§fGreen: Â§aAllowedÂ§f, Â§fRed: Â§cDenied");
+											p.sendMessage("Â§7-----------------------------------------------------");
 											String allperms = "use chests build ";
 											String perms = t
 													.getChunkDefaultPerms();
@@ -3501,16 +3641,16 @@ public class Kirithia extends JavaPlugin implements Listener {
 												allperms = allperms.replace(
 														rem, "");
 											}
-											String finalmsg = "§a"
+											String finalmsg = "Â§a"
 													+ t.getChunkDefaultPerms()
-													+ "§c" + allperms;
+													+ "Â§c" + allperms;
 											while (finalmsg.contains("  ")) {
 												finalmsg = finalmsg.replace(
 														"  ", " ");
 											}
-											p.sendMessage("§bPermissions: "
+											p.sendMessage("Â§bPermissions: "
 													+ finalmsg);
-											p.sendMessage("/§etown chunk perm default <permission> §aallow§f/§cdeny§f: §7Set permissions.");
+											p.sendMessage("/Â§etown chunk perm default <permission> Â§aallowÂ§f/Â§cdenyÂ§f: Â§7Set permissions.");
 											return false;
 										} else {
 											if (!args[3]
@@ -3519,8 +3659,8 @@ public class Kirithia extends JavaPlugin implements Listener {
 															.equalsIgnoreCase("build")
 													&& !args[3]
 															.equalsIgnoreCase("chests")) {
-												p.sendMessage("§cInvalid permission!");
-												p.sendMessage("§cPermissions: §bchests, build, use");
+												p.sendMessage("Â§cInvalid permission!");
+												p.sendMessage("Â§cPermissions: Â§bchests, build, use");
 												return false;
 											}
 											if (args.length > 4) {
@@ -3528,9 +3668,9 @@ public class Kirithia extends JavaPlugin implements Listener {
 														.equalsIgnoreCase("allow")
 														&& !args[4]
 																.equalsIgnoreCase("deny")) {
-													p.sendMessage("§cUse like this: §e/town chunk perm default "
+													p.sendMessage("Â§cUse like this: Â§e/town chunk perm default "
 															+ args[3]
-															+ " §aallow§f/§cdeny");
+															+ " Â§aallowÂ§f/Â§cdeny");
 													return false;
 												} else {
 													if (args[4]
@@ -3538,7 +3678,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 														if (!t.getOwner()
 																.equals(p
 																		.getName())) {
-															p.sendMessage("§cOnly the §6Mayor §chas access to these commands!");
+															p.sendMessage("Â§cOnly the Â§6Mayor Â§chas access to these commands!");
 															return false;
 														}
 														String permission = args[3];
@@ -3549,14 +3689,14 @@ public class Kirithia extends JavaPlugin implements Listener {
 																	.getChunkDefaultPerms()
 																	+ permission
 																	+ " ");
-															p.sendMessage("§aChunk default permission allowed: §b"
+															p.sendMessage("Â§aChunk default permission allowed: Â§b"
 																	+ args[3]
 																			.toLowerCase());
 														} else {
-															p.sendMessage("§cChunk default already have the §b"
+															p.sendMessage("Â§cChunk default already have the Â§b"
 																	+ args[3]
 																			.toLowerCase()
-																	+ "§c permission.");
+																	+ "Â§c permission.");
 														}
 														return false;
 													}
@@ -3565,7 +3705,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 														if (!t.getOwner()
 																.equals(p
 																		.getName())) {
-															p.sendMessage("§cOnly the §6Mayor §chas access to these commands!");
+															p.sendMessage("Â§cOnly the Â§6Mayor Â§chas access to these commands!");
 															return false;
 														}
 														String permission = args[3];
@@ -3581,14 +3721,14 @@ public class Kirithia extends JavaPlugin implements Listener {
 																					+ " ",
 																			"");
 															t.setChunkDefaultPerms(permss);
-															p.sendMessage("§aChunk default permission §cdenied§a: §b"
+															p.sendMessage("Â§aChunk default permission Â§cdeniedÂ§a: Â§b"
 																	+ args[3]
 																			.toLowerCase());
 														} else {
-															p.sendMessage("§cChunk default don't have the §b"
+															p.sendMessage("Â§cChunk default don't have the Â§b"
 																	+ args[3]
 																			.toLowerCase()
-																	+ "§c permission.");
+																	+ "Â§c permission.");
 														}
 														return false;
 
@@ -3601,9 +3741,9 @@ public class Kirithia extends JavaPlugin implements Listener {
 									}
 									if (args[2].equalsIgnoreCase("member")) {
 										if (args.length < 5) {
-											p.sendMessage("§bChunk Member Permissions:");
-											p.sendMessage("§fGreen: §aAllowed§f, §fRed: §cDenied");
-											p.sendMessage("§7-----------------------------------------------------");
+											p.sendMessage("Â§bChunk Member Permissions:");
+											p.sendMessage("Â§fGreen: Â§aAllowedÂ§f, Â§fRed: Â§cDenied");
+											p.sendMessage("Â§7-----------------------------------------------------");
 											String allperms = "use chests build ";
 											String perms = t
 													.getChunkMemberPerms();
@@ -3616,16 +3756,16 @@ public class Kirithia extends JavaPlugin implements Listener {
 												allperms = allperms.replace(
 														rem, "");
 											}
-											String finalmsg = "§a"
+											String finalmsg = "Â§a"
 													+ t.getChunkMemberPerms()
-													+ "§c" + allperms;
+													+ "Â§c" + allperms;
 											while (finalmsg.contains("  ")) {
 												finalmsg = finalmsg.replace(
 														"  ", " ");
 											}
-											p.sendMessage("§bPermissions: "
+											p.sendMessage("Â§bPermissions: "
 													+ finalmsg);
-											p.sendMessage("/§etown chunk perm member <permission> §aallow§f/§cdeny§f: §7Set permissions.");
+											p.sendMessage("/Â§etown chunk perm member <permission> Â§aallowÂ§f/Â§cdenyÂ§f: Â§7Set permissions.");
 											return false;
 										} else {
 											if (!args[3]
@@ -3634,8 +3774,8 @@ public class Kirithia extends JavaPlugin implements Listener {
 															.equalsIgnoreCase("build")
 													&& !args[3]
 															.equalsIgnoreCase("chests")) {
-												p.sendMessage("§cInvalid permission!");
-												p.sendMessage("§cPermissions: §bchests, build, use");
+												p.sendMessage("Â§cInvalid permission!");
+												p.sendMessage("Â§cPermissions: Â§bchests, build, use");
 												return false;
 											}
 											if (args.length > 4) {
@@ -3643,9 +3783,9 @@ public class Kirithia extends JavaPlugin implements Listener {
 														.equalsIgnoreCase("allow")
 														&& !args[4]
 																.equalsIgnoreCase("deny")) {
-													p.sendMessage("§cUse like this: §e/town chunk perm member "
+													p.sendMessage("Â§cUse like this: Â§e/town chunk perm member "
 															+ args[3]
-															+ " §aallow§f/§cdeny");
+															+ " Â§aallowÂ§f/Â§cdeny");
 													return false;
 												} else {
 													if (args[4]
@@ -3658,14 +3798,14 @@ public class Kirithia extends JavaPlugin implements Listener {
 																	.getChunkMemberPerms()
 																	+ permission
 																	+ " ");
-															p.sendMessage("§aChunk members permission allowed: §b"
+															p.sendMessage("Â§aChunk members permission allowed: Â§b"
 																	+ args[3]
 																			.toLowerCase());
 														} else {
-															p.sendMessage("§cChunk members already have the §b"
+															p.sendMessage("Â§cChunk members already have the Â§b"
 																	+ args[3]
 																			.toLowerCase()
-																	+ "§c permission.");
+																	+ "Â§c permission.");
 														}
 														return false;
 													}
@@ -3684,14 +3824,14 @@ public class Kirithia extends JavaPlugin implements Listener {
 																					+ " ",
 																			"");
 															t.setChunkMemberPerms(permss);
-															p.sendMessage("§aChunk members permission §cdenied§a: §b"
+															p.sendMessage("Â§aChunk members permission Â§cdeniedÂ§a: Â§b"
 																	+ args[3]
 																			.toLowerCase());
 														} else {
-															p.sendMessage("§cChunk members don't have the §b"
+															p.sendMessage("Â§cChunk members don't have the Â§b"
 																	+ args[3]
 																			.toLowerCase()
-																	+ "§c permission.");
+																	+ "Â§c permission.");
 														}
 														return false;
 
@@ -3703,9 +3843,9 @@ public class Kirithia extends JavaPlugin implements Listener {
 									}
 									if (args[2].equalsIgnoreCase("owner")) {
 										if (args.length < 5) {
-											p.sendMessage("§bChunk owner Permissions:");
-											p.sendMessage("§fGreen: §aAllowed§f, §fRed: §cDenied");
-											p.sendMessage("§7-----------------------------------------------------");
+											p.sendMessage("Â§bChunk owner Permissions:");
+											p.sendMessage("Â§fGreen: Â§aAllowedÂ§f, Â§fRed: Â§cDenied");
+											p.sendMessage("Â§7-----------------------------------------------------");
 											String allperms = "use chests build ";
 											String perms = t
 													.getChunkOwnerPerms();
@@ -3718,16 +3858,16 @@ public class Kirithia extends JavaPlugin implements Listener {
 												allperms = allperms.replace(
 														rem, "");
 											}
-											String finalmsg = "§a"
+											String finalmsg = "Â§a"
 													+ t.getChunkOwnerPerms()
-													+ "§c" + allperms;
+													+ "Â§c" + allperms;
 											while (finalmsg.contains("  ")) {
 												finalmsg = finalmsg.replace(
 														"  ", " ");
 											}
-											p.sendMessage("§bPermissions: "
+											p.sendMessage("Â§bPermissions: "
 													+ finalmsg);
-											p.sendMessage("/§etown chunk perm owner <permission> §aallow§f/§cdeny§f: §7Set permissions.");
+											p.sendMessage("/Â§etown chunk perm owner <permission> Â§aallowÂ§f/Â§cdenyÂ§f: Â§7Set permissions.");
 											return false;
 										} else {
 											if (!args[3]
@@ -3736,8 +3876,8 @@ public class Kirithia extends JavaPlugin implements Listener {
 															.equalsIgnoreCase("build")
 													&& !args[3]
 															.equalsIgnoreCase("chests")) {
-												p.sendMessage("§cInvalid permission!");
-												p.sendMessage("§cPermissions: §bchests, build, use");
+												p.sendMessage("Â§cInvalid permission!");
+												p.sendMessage("Â§cPermissions: Â§bchests, build, use");
 												return false;
 											}
 											if (args.length > 4) {
@@ -3745,9 +3885,9 @@ public class Kirithia extends JavaPlugin implements Listener {
 														.equalsIgnoreCase("allow")
 														&& !args[4]
 																.equalsIgnoreCase("deny")) {
-													p.sendMessage("§cUse like this: §e/town chunk perm owner "
+													p.sendMessage("Â§cUse like this: Â§e/town chunk perm owner "
 															+ args[3]
-															+ " §aallow§f/§cdeny");
+															+ " Â§aallowÂ§f/Â§cdeny");
 													return false;
 												} else {
 													if (args[4]
@@ -3760,14 +3900,14 @@ public class Kirithia extends JavaPlugin implements Listener {
 																	.getChunkOwnerPerms()
 																	+ permission
 																	+ " ");
-															p.sendMessage("§aChunk owners permission allowed: §b"
+															p.sendMessage("Â§aChunk owners permission allowed: Â§b"
 																	+ args[3]
 																			.toLowerCase());
 														} else {
-															p.sendMessage("§cChunk owners already have the §b"
+															p.sendMessage("Â§cChunk owners already have the Â§b"
 																	+ args[3]
 																			.toLowerCase()
-																	+ "§c permission.");
+																	+ "Â§c permission.");
 														}
 														return false;
 													}
@@ -3786,14 +3926,14 @@ public class Kirithia extends JavaPlugin implements Listener {
 																					+ " ",
 																			"");
 															t.setChunkOwnerPerms(permss);
-															p.sendMessage("§aChunk owners permission §cdenied§a: §b"
+															p.sendMessage("Â§aChunk owners permission Â§cdeniedÂ§a: Â§b"
 																	+ args[3]
 																			.toLowerCase());
 														} else {
-															p.sendMessage("§cChunk owners don't have the §b"
+															p.sendMessage("Â§cChunk owners don't have the Â§b"
 																	+ args[3]
 																			.toLowerCase()
-																	+ "§c permission.");
+																	+ "Â§c permission.");
 														}
 														return false;
 
@@ -3803,90 +3943,90 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 										}
 									}
-									p.sendMessage("§7-----------------------------------------------------");
-									p.sendMessage("§7-------------------§6Land Permissions§7-------------------");
-									p.sendMessage("§7-----------------------------------------------------");
-									p.sendMessage("- §e/town chunk perm §ainfo: §7Information about each permission.");
-									p.sendMessage("- §e/town chunk perm §fdefault: §7Lists the default permissions.");
-									p.sendMessage("- §e/town chunk perm §bmember: §7Lists the member permissions.");
-									p.sendMessage("- §e/town chunk perm §cowner: §7Lists the owner permissions.");
-									p.sendMessage("§7-----------------------------------------------------");
+									p.sendMessage("Â§7-----------------------------------------------------");
+									p.sendMessage("Â§7-------------------Â§6Land PermissionsÂ§7-------------------");
+									p.sendMessage("Â§7-----------------------------------------------------");
+									p.sendMessage("- Â§e/town chunk perm Â§ainfo: Â§7Information about each permission.");
+									p.sendMessage("- Â§e/town chunk perm Â§fdefault: Â§7Lists the default permissions.");
+									p.sendMessage("- Â§e/town chunk perm Â§bmember: Â§7Lists the member permissions.");
+									p.sendMessage("- Â§e/town chunk perm Â§cowner: Â§7Lists the owner permissions.");
+									p.sendMessage("Â§7-----------------------------------------------------");
 									return false;
 								}
-								p.sendMessage("§7-----------------------------------------------------");
-								p.sendMessage("§7-------------------§6Land Permissions§7-------------------");
-								p.sendMessage("§7-----------------------------------------------------");
-								p.sendMessage("- §e/town chunk perm §ainfo: §7Information about each permission.");
-								p.sendMessage("- §e/town chunk perm §fdefault: §7Lists the default permissions.");
-								p.sendMessage("- §e/town chunk perm §bmember: §7Lists the member permissions.");
-								p.sendMessage("- §e/town chunk perm §cowner: §7Lists the owner permissions.");
-								p.sendMessage("§7-----------------------------------------------------");
+								p.sendMessage("Â§7-----------------------------------------------------");
+								p.sendMessage("Â§7-------------------Â§6Land PermissionsÂ§7-------------------");
+								p.sendMessage("Â§7-----------------------------------------------------");
+								p.sendMessage("- Â§e/town chunk perm Â§ainfo: Â§7Information about each permission.");
+								p.sendMessage("- Â§e/town chunk perm Â§fdefault: Â§7Lists the default permissions.");
+								p.sendMessage("- Â§e/town chunk perm Â§bmember: Â§7Lists the member permissions.");
+								p.sendMessage("- Â§e/town chunk perm Â§cowner: Â§7Lists the owner permissions.");
+								p.sendMessage("Â§7-----------------------------------------------------");
 								return false;
 							}
-							p.sendMessage("§7-----------------------------------------------------");
-							p.sendMessage("§7-------------------§6Chunk Commands§7-------------------");
-							p.sendMessage("§7-----------------------------------------------------");
-							p.sendMessage("- §e/town chunk §6info: §7Lists members and owners of the chunk you are standing in.");
-							p.sendMessage("- §e/town chunk §aperm: §7Chunk permission commands.");
-							p.sendMessage("- §e/town chunk §faddmember§e <name>: §7Adds a member to the chunk you are standing in.");
-							p.sendMessage("- §e/town chunk §faddowner§e <name>: §7Adds an owner to the chunk you are standing in.");
-							p.sendMessage("- §e/town chunk §cremovemember §e<name>: §7Removes a member from the chunk you are standing in.");
-							p.sendMessage("- §e/town chunk §cremoveowner §e<name>: §7Removes an owner from the chunk you are standing in.");
-							p.sendMessage("§7-----------------------------------------------------");
+							p.sendMessage("Â§7-----------------------------------------------------");
+							p.sendMessage("Â§7-------------------Â§6Chunk CommandsÂ§7-------------------");
+							p.sendMessage("Â§7-----------------------------------------------------");
+							p.sendMessage("- Â§e/town chunk Â§6info: Â§7Lists members and owners of the chunk you are standing in.");
+							p.sendMessage("- Â§e/town chunk Â§aperm: Â§7Chunk permission commands.");
+							p.sendMessage("- Â§e/town chunk Â§faddmemberÂ§e <name>: Â§7Adds a member to the chunk you are standing in.");
+							p.sendMessage("- Â§e/town chunk Â§faddownerÂ§e <name>: Â§7Adds an owner to the chunk you are standing in.");
+							p.sendMessage("- Â§e/town chunk Â§cremovemember Â§e<name>: Â§7Removes a member from the chunk you are standing in.");
+							p.sendMessage("- Â§e/town chunk Â§cremoveowner Â§e<name>: Â§7Removes an owner from the chunk you are standing in.");
+							p.sendMessage("Â§7-----------------------------------------------------");
 							return false;
 						} else {
 							// chunk help
-							p.sendMessage("§7-----------------------------------------------------");
-							p.sendMessage("§7-------------------§6Chunk Commands§7-------------------");
-							p.sendMessage("§7-----------------------------------------------------");
-							p.sendMessage("- §e/town chunk §6info: §7Lists members and owners of the chunk you are standing in.");
-							p.sendMessage("- §e/town chunk §aperm: §7Chunk permission commands.");
-							p.sendMessage("- §e/town chunk §faddmember§e <name>: §7Adds a member to the chunk you are standing in.");
-							p.sendMessage("- §e/town chunk §faddowner§e <name>: §7Adds an owner to the chunk you are standing in.");
-							p.sendMessage("- §e/town chunk §cremovemember §e<name>: §7Removes a member from the chunk you are standing in.");
-							p.sendMessage("- §e/town chunk §cremoveowner §e<name>: §7Removes an owner from the chunk you are standing in.");
-							p.sendMessage("§7-----------------------------------------------------");
+							p.sendMessage("Â§7-----------------------------------------------------");
+							p.sendMessage("Â§7-------------------Â§6Chunk CommandsÂ§7-------------------");
+							p.sendMessage("Â§7-----------------------------------------------------");
+							p.sendMessage("- Â§e/town chunk Â§6info: Â§7Lists members and owners of the chunk you are standing in.");
+							p.sendMessage("- Â§e/town chunk Â§aperm: Â§7Chunk permission commands.");
+							p.sendMessage("- Â§e/town chunk Â§faddmemberÂ§e <name>: Â§7Adds a member to the chunk you are standing in.");
+							p.sendMessage("- Â§e/town chunk Â§faddownerÂ§e <name>: Â§7Adds an owner to the chunk you are standing in.");
+							p.sendMessage("- Â§e/town chunk Â§cremovemember Â§e<name>: Â§7Removes a member from the chunk you are standing in.");
+							p.sendMessage("- Â§e/town chunk Â§cremoveowner Â§e<name>: Â§7Removes an owner from the chunk you are standing in.");
+							p.sendMessage("Â§7-----------------------------------------------------");
 							return false;
 						}
 
 					}
 					if (args[0].equalsIgnoreCase("ally")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "allegiance")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 						if (args.length < 2) {
-							p.sendMessage("§cUse like this! §e/town ally <townname>");
+							p.sendMessage("Â§cUse like this! Â§e/town ally <townname>");
 							return false;
 						}
 						if (town.getTown(args[1].toLowerCase()) == null) {
-							p.sendMessage("§cThe town§e " + args[1]
-									+ " §cdoes not exist!");
+							p.sendMessage("Â§cThe townÂ§e " + args[1]
+									+ " Â§cdoes not exist!");
 							return false;
 						}
 						Towns req = town.getTown(args[1].toLowerCase());
 						if (town.isAlly(t, req)) {
-							p.sendMessage("§cYou are already §aallies with §e"
-									+ req.getName() + "§c!");
+							p.sendMessage("Â§cYou are already Â§aallies with Â§e"
+									+ req.getName() + "Â§c!");
 							return false;
 						}
 
 						if (allyreq.get(req.getName()).contains(t.getName())) {
 							for (Player pl : req.getOnlineStaff()) {
-								pl.sendMessage("§5[§6Allegiance§5] §aThe town §e"
+								pl.sendMessage("Â§5[Â§6AllegianceÂ§5] Â§aThe town Â§e"
 										+ req.getName()
-										+ " §ahas accepted your alliance request!");
+										+ " Â§ahas accepted your alliance request!");
 							}
 							for (Player pl : t.getOnlineStaff()) {
-								pl.sendMessage("§5[§6Allegiance§5] §e"
-										+ p.getName() + " §a has accepted §e"
+								pl.sendMessage("Â§5[Â§6AllegianceÂ§5] Â§e"
+										+ p.getName() + " Â§a has accepted Â§e"
 										+ req.getName()
-										+ "'s §aalliance request!");
+										+ "'s Â§aalliance request!");
 							}
 							town.setAlly(t, req);
 							return false;
@@ -3894,16 +4034,16 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 						if (!allyreq.get(t.getName()).contains(req.getName())) {
 							for (Player pl : req.getOnlineStaff()) {
-								pl.sendMessage("§5[§6Allegiance§5] §aThe town §e"
+								pl.sendMessage("Â§5[Â§6AllegianceÂ§5] Â§aThe town Â§e"
 										+ t.getName()
-										+ " §ahas requested an alliance. Type §e/town ally "
-										+ t.getName() + " §ato accept.");
+										+ " Â§ahas requested an alliance. Type Â§e/town ally "
+										+ t.getName() + " Â§ato accept.");
 							}
 							for (Player pl : t.getOnlineStaff()) {
-								pl.sendMessage("§5[§6Allegiance§5] §e"
-										+ p.getName() + " §ahas sent §e"
+								pl.sendMessage("Â§5[Â§6AllegianceÂ§5] Â§e"
+										+ p.getName() + " Â§ahas sent Â§e"
 										+ req.getName()
-										+ " §aan alliance request!");
+										+ " Â§aan alliance request!");
 							}
 							List<String> l = allyreq.get(t.getName());
 							l.add(req.getName());
@@ -3920,83 +4060,83 @@ public class Kirithia extends JavaPlugin implements Listener {
 							return false;
 						}
 
-						p.sendMessage("§cYou have already sent an alliance request to this town.");
+						p.sendMessage("Â§cYou have already sent an alliance request to this town.");
 						return false;
 					}
 					if (args[0].equalsIgnoreCase("enemy")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "allegiance")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 						if (args.length < 2) {
-							p.sendMessage("§cUse like this! §e/town enemy <townname>");
+							p.sendMessage("Â§cUse like this! Â§e/town enemy <townname>");
 							return false;
 						}
 						if (town.getTown(args[1].toLowerCase()) == null) {
-							p.sendMessage("§cThe town§e " + args[1]
-									+ " §cdoes not exist!");
+							p.sendMessage("Â§cThe townÂ§e " + args[1]
+									+ " Â§cdoes not exist!");
 							return false;
 						}
 						Towns req = town.getTown(args[1].toLowerCase());
 						if (town.isEnemy(t, req)) {
-							p.sendMessage("§cYou are already enemies with §e"
-									+ req.getName() + "§c!");
+							p.sendMessage("Â§cYou are already enemies with Â§e"
+									+ req.getName() + "Â§c!");
 							return false;
 						}
 						for (Player pl : req.getOnlineStaff()) {
-							pl.sendMessage("§5[§6Allegiance§5] §cThe town §e"
+							pl.sendMessage("Â§5[Â§6AllegianceÂ§5] Â§cThe town Â§e"
 									+ t.getName()
-									+ " §chas declared you as an enemy!");
+									+ " Â§chas declared you as an enemy!");
 						}
 						for (Player pl : t.getOnlineStaff()) {
-							pl.sendMessage("§5[§6Allegiance§5] §e"
+							pl.sendMessage("Â§5[Â§6AllegianceÂ§5] Â§e"
 									+ p.getName()
-									+ " §chas declared the town §e"
-									+ req.getName() + " §cas an enemy!");
+									+ " Â§chas declared the town Â§e"
+									+ req.getName() + " Â§cas an enemy!");
 						}
 						town.setEnemies(t, req);
 						return false;
 					}
 					if (args[0].equalsIgnoreCase("neutral")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
 						if (!t.hasPermission(p, "allegiance")) {
-							p.sendMessage("§cYou do not have permission to do that for your town.");
+							p.sendMessage("Â§cYou do not have permission to do that for your town.");
 							return false;
 						}
 						if (args.length < 2) {
-							p.sendMessage("§cUse like this! §e/town neutral <townname>");
+							p.sendMessage("Â§cUse like this! Â§e/town neutral <townname>");
 							return false;
 						}
 						if (town.getTown(args[1].toLowerCase()) == null) {
-							p.sendMessage("§cThe town§e " + args[1]
-									+ " §cdoes not exist!");
+							p.sendMessage("Â§cThe townÂ§e " + args[1]
+									+ " Â§cdoes not exist!");
 							return false;
 						}
 						Towns req = town.getTown(args[1].toLowerCase());
 						if (town.isNeutral(t, req)) {
-							p.sendMessage("§cYou are already §eneutral with §e"
-									+ req.getName() + "§c!");
+							p.sendMessage("Â§cYou are already Â§eneutral with Â§e"
+									+ req.getName() + "Â§c!");
 							return false;
 						}
 
 						if (town.isAlly(t, req)) {
 							for (Player pl : req.getOnlineStaff()) {
-								pl.sendMessage("§5[§6Allegiance§5] §aYou now have a neutral standing with §e"
-										+ req.getName() + "§a!");
+								pl.sendMessage("Â§5[Â§6AllegianceÂ§5] Â§aYou now have a neutral standing with Â§e"
+										+ req.getName() + "Â§a!");
 							}
 							for (Player pl : t.getOnlineStaff()) {
-								pl.sendMessage("§5[§6Allegiance§5] §e"
+								pl.sendMessage("Â§5[Â§6AllegianceÂ§5] Â§e"
 										+ req.getName()
-										+ " §aset a §eneutral §astanding with you. You are no longer allies.");
+										+ " Â§aset a Â§eneutral Â§astanding with you. You are no longer allies.");
 							}
 							town.setNeutrals(t, req);
 							return false;
@@ -4005,15 +4145,15 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 						if (neutralreq.get(req.getName()).contains(t.getName())) {
 							for (Player pl : req.getOnlineStaff()) {
-								pl.sendMessage("§5[§6Allegiance§5] §aThe town §e"
+								pl.sendMessage("Â§5[Â§6AllegianceÂ§5] Â§aThe town Â§e"
 										+ req.getName()
-										+ " §ahas accepted your neutral request!");
+										+ " Â§ahas accepted your neutral request!");
 							}
 							for (Player pl : t.getOnlineStaff()) {
-								pl.sendMessage("§5[§6Allegiance§5] §e"
-										+ p.getName() + " §ahas accepted §e"
+								pl.sendMessage("Â§5[Â§6AllegianceÂ§5] Â§e"
+										+ p.getName() + " Â§ahas accepted Â§e"
 										+ req.getName()
-										+ "'s §eneutral §arequest!");
+										+ "'s Â§eneutral Â§arequest!");
 							}
 							town.setNeutrals(t, req);
 							return false;
@@ -4022,16 +4162,16 @@ public class Kirithia extends JavaPlugin implements Listener {
 						if (!neutralreq.get(t.getName())
 								.contains(req.getName())) {
 							for (Player pl : req.getOnlineStaff()) {
-								pl.sendMessage("§5[§6Allegiance§5] §aThe town §e"
+								pl.sendMessage("Â§5[Â§6AllegianceÂ§5] Â§aThe town Â§e"
 										+ t.getName()
-										+ " §ahas requested neutrality. Type §e/town neutral "
-										+ t.getName() + " §ato accept.");
+										+ " Â§ahas requested neutrality. Type Â§e/town neutral "
+										+ t.getName() + " Â§ato accept.");
 							}
 							for (Player pl : t.getOnlineStaff()) {
-								pl.sendMessage("§5[§6Allegiance§5] §e"
-										+ p.getName() + " §ahas sent §e"
+								pl.sendMessage("Â§5[Â§6AllegianceÂ§5] Â§e"
+										+ p.getName() + " Â§ahas sent Â§e"
 										+ req.getName()
-										+ "§a a neutral request!");
+										+ "Â§a a neutral request!");
 							}
 							List<String> l = neutralreq.get(t.getName());
 							l.add(req.getName());
@@ -4048,12 +4188,12 @@ public class Kirithia extends JavaPlugin implements Listener {
 							return false;
 						}
 
-						p.sendMessage("§cYou have already sent a neutral request to this town.");
+						p.sendMessage("Â§cYou have already sent a neutral request to this town.");
 						return false;
 					}
 					if (args[0].equalsIgnoreCase("level")) {
 						if (town.getTownofPlayer(p.getName()) == null) {
-							p.sendMessage("§cYou're not in a town!");
+							p.sendMessage("Â§cYou're not in a town!");
 							return false;
 						}
 						Towns t = town.getTownofPlayer(p.getName());
@@ -4066,66 +4206,66 @@ public class Kirithia extends JavaPlugin implements Listener {
 						}
 						int greens = (int) Math.round(pc);
 						int i = 0;
-						String bar = "§6[";
+						String bar = "Â§6[";
 						while (i < 50) {
 							if (i < greens) {
-								bar = bar + "§a|";
+								bar = bar + "Â§a|";
 							} else {
-								bar = bar + "§c|";
+								bar = bar + "Â§c|";
 							}
 							i++;
 						}
-						bar = bar + "§6]";
-						p.sendMessage("§f-----------------------------------------------------");
-						p.sendMessage("§f---------------------§6Town Level§f---------------------");
-						p.sendMessage("§f-----------------------------------------------------");
-						p.sendMessage("§bCurrent Level: §6"
+						bar = bar + "Â§6]";
+						p.sendMessage("Â§f-----------------------------------------------------");
+						p.sendMessage("Â§f---------------------Â§6Town LevelÂ§f---------------------");
+						p.sendMessage("Â§f-----------------------------------------------------");
+						p.sendMessage("Â§bCurrent Level: Â§6"
 								+ (int) t.getLevel());
-						p.sendMessage("§bCurrent XP: §6" + (int) t.getTotalXp());
+						p.sendMessage("Â§bCurrent XP: Â§6" + (int) t.getTotalXp());
 						if (t.getLevel() == 1) {
-							p.sendMessage("§60 "
+							p.sendMessage("Â§60 "
 									+ bar
-									+ " §6"
+									+ " Â§6"
 									+ (int) t.getTotalXptoALevel(t.getLevel() + 1));
 						} else {
-							p.sendMessage("§6"
+							p.sendMessage("Â§6"
 									+ (int) t.getTotalXptoALevel(t.getLevel())
 									+ " "
 									+ bar
-									+ " §6"
+									+ " Â§6"
 									+ (int) t.getTotalXptoALevel(t.getLevel() + 1));
 						}
-						p.sendMessage("§f-----------------------------------------------------");
+						p.sendMessage("Â§f-----------------------------------------------------");
 
 					}
-					p.sendMessage("§7-----------------------------------------------------");
-					p.sendMessage("§7--------------§6Kirithian Towns Help (1/4)§7--------------");
-					p.sendMessage("§7-----------------------------------------------------");
-					p.sendMessage("- §e/town info <name>: §7Displays information on a town.");
-					p.sendMessage("- §e/town create <name>: §7Creates a town.");
-					p.sendMessage("- §e/town invite <name>: §7Invites a player to your town.");
-					p.sendMessage("- §e/town join <name>: §7Request membership of a town.");
-					p.sendMessage("- §e/town leave: §7Leaves a town.");
-					p.sendMessage("- §e/town chat: §7Toggles town chat.");
-					p.sendMessage("- §7Type §b/town help 2§7 for the next page of help.");
+					p.sendMessage("Â§7-----------------------------------------------------");
+					p.sendMessage("Â§7--------------Â§6Kirithian Towns Help (1/4)Â§7--------------");
+					p.sendMessage("Â§7-----------------------------------------------------");
+					p.sendMessage("- Â§e/town info <name>: Â§7Displays information on a town.");
+					p.sendMessage("- Â§e/town create <name>: Â§7Creates a town.");
+					p.sendMessage("- Â§e/town invite <name>: Â§7Invites a player to your town.");
+					p.sendMessage("- Â§e/town join <name>: Â§7Request membership of a town.");
+					p.sendMessage("- Â§e/town leave: Â§7Leaves a town.");
+					p.sendMessage("- Â§e/town chat: Â§7Toggles town chat.");
+					p.sendMessage("- Â§7Type Â§b/town help 2Â§7 for the next page of help.");
 					return false;
 
 				} else {
-					p.sendMessage("§cYou do not have permission for any town commands.");
+					p.sendMessage("Â§cYou do not have permission for any town commands.");
 					return false;
 				}
 
 			} else {
-				p.sendMessage("§7-----------------------------------------------------");
-				p.sendMessage("§7--------------§6Kirithian Towns Help (1/4)§7--------------");
-				p.sendMessage("§7-----------------------------------------------------");
-				p.sendMessage("- §e/town info <name>: §7Displays information on a town.");
-				p.sendMessage("- §e/town create <name>: §7Creates a town.");
-				p.sendMessage("- §e/town invite <name>: §7Invites a player to your town.");
-				p.sendMessage("- §e/town join <name>: §7Request membership of a town.");
-				p.sendMessage("- §e/town leave: §7Leaves a town.");
-				p.sendMessage("- §e/town chat: §7Toggles town chat.");
-				p.sendMessage("- §7Type §b/town help 2§7 for the next page of help.");
+				p.sendMessage("Â§7-----------------------------------------------------");
+				p.sendMessage("Â§7--------------Â§6Kirithian Towns Help (1/4)Â§7--------------");
+				p.sendMessage("Â§7-----------------------------------------------------");
+				p.sendMessage("- Â§e/town info <name>: Â§7Displays information on a town.");
+				p.sendMessage("- Â§e/town create <name>: Â§7Creates a town.");
+				p.sendMessage("- Â§e/town invite <name>: Â§7Invites a player to your town.");
+				p.sendMessage("- Â§e/town join <name>: Â§7Request membership of a town.");
+				p.sendMessage("- Â§e/town leave: Â§7Leaves a town.");
+				p.sendMessage("- Â§e/town chat: Â§7Toggles town chat.");
+				p.sendMessage("- Â§7Type Â§b/town help 2Â§7 for the next page of help.");
 				return false;
 			}
 		}
@@ -4140,16 +4280,16 @@ public class Kirithia extends JavaPlugin implements Listener {
 			}
 			return;
 		}
-		String m = "§5" + sender.getName() + ": " + message;
+		String m = "Â§5" + sender.getName() + ": " + message;
 		if (town.getModerators().contains(sender.getName())) {
-			m = "§5[§bM§5] " + m;
+			m = "Â§5[Â§bMÂ§5] " + m;
 
 		}
 		if (town.getAdmins().contains(sender.getName())) {
-			m = "§5[§cA§5] " + m;
+			m = "Â§5[Â§cAÂ§5] " + m;
 		}
 		if (town.getOwner().equalsIgnoreCase(sender.getName())) {
-			m = "§5[§6Mayor§5] " + m;
+			m = "Â§5[Â§6MayorÂ§5] " + m;
 		}
 		for (Player p : town.getOnlineMembers()) {
 			p.sendMessage(m);
@@ -4170,10 +4310,10 @@ public class Kirithia extends JavaPlugin implements Listener {
 			ls.add(town.getName());
 			invited.put(player.getName(), ls);
 		}
-		player.sendMessage("§bYou have been invited to §e" + town.getName()
-				+ " §bby §e" + inviter.getName() + ".");
-		player.sendMessage("§bType §e/town join " + town.getName()
-				+ " §bin the next 30 seconds to accept and join.");
+		player.sendMessage("Â§bYou have been invited to Â§e" + town.getName()
+				+ " Â§bby Â§e" + inviter.getName() + ".");
+		player.sendMessage("Â§bType Â§e/town join " + town.getName()
+				+ " Â§bin the next 30 seconds to accept and join.");
 		final Player p = player;
 		final Towns t = town;
 		Bukkit.getScheduler().scheduleSyncDelayedTask(this, new Runnable() {
@@ -4201,8 +4341,8 @@ public class Kirithia extends JavaPlugin implements Listener {
 				OfflinePlayer pl = Bukkit.getOfflinePlayer(name);
 				if (pl.isOnline()) {
 
-					((Player) pl).sendMessage("§b[§cA§b] §f"
-							+ e.getPlayer().getName() + "§7: §b"
+					((Player) pl).sendMessage("Â§b[Â§cAÂ§b] Â§f"
+							+ e.getPlayer().getName() + "Â§7: Â§b"
 							+ e.getMessage());
 				}
 			}
@@ -4213,15 +4353,9 @@ public class Kirithia extends JavaPlugin implements Listener {
 		}
 	}
 
-	@EventHandler
-	public void onLogout(PlayerQuitEvent e) {
-		if (usingadminchat.contains(e.getPlayer().getName())) {
-			usingadminchat.remove(e.getPlayer().getName());
-		}
-		if (usingtownchat.contains(e.getPlayer().getName())) {
-			usingtownchat.remove(e.getPlayer().getName());
-		}
-	}
+
+
+
 
 	@EventHandler
 	public void onMove(PlayerMoveEvent e) {
@@ -4239,7 +4373,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 				if (from.equals(to)) {
 					return;
 				} else {
-					p.sendMessage("§bTerritory of §e" + to.getName() + "§b!");
+					p.sendMessage("Â§bTerritory of Â§e" + to.getName() + "Â§b!");
 					return;
 				}
 
@@ -4251,7 +4385,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 				if (namefrom.equals(nameto)) {
 					return;
 				} else {
-					p.sendMessage("§e" + nameto + "'s §6Private Chunk");
+					p.sendMessage("Â§e" + nameto + "'s Â§6Private Chunk");
 					return;
 				}
 			}
@@ -4279,12 +4413,12 @@ public class Kirithia extends JavaPlugin implements Listener {
 				return;
 			}
 			if (ch.getType(chunkto).equals("wild")) {
-				p.sendMessage("§7The Wild.");
+				p.sendMessage("Â§7The Wild.");
 				return;
 			}
 			if (ch.getType(chunkto).equals("town")) {
-				p.sendMessage("§bTerritory of §e"
-						+ town.getTownofChunk(chunkto).getName() + "§b!");
+				p.sendMessage("Â§bTerritory of Â§e"
+						+ town.getTownofChunk(chunkto).getName() + "Â§b!");
 				return;
 			}
 			if (ch.getType(chunkto).equals("admin")) {
@@ -4298,7 +4432,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 			}
 			if (ch.getType(chunkto).equals("player")) {
 				String nameto = kp.KP(kp.getPlayerofChunk(chunkto)).getName();
-				p.sendMessage("§e" + nameto + "'s §6Private Chunk");
+				p.sendMessage("Â§e" + nameto + "'s Â§6Private Chunk");
 				return;
 			}
 		}
@@ -4321,6 +4455,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 	public void onEntityBreak(HangingBreakByEntityEvent e) {
 		Chunk c = e.getEntity().getLocation().getChunk();
 		ChunkSnapshot cs = c.getChunkSnapshot();
+		Player p = null;
 		if (e.getRemover() instanceof Player) {
 			p = (Player) e.getRemover();
 		} else if (e.getRemover() instanceof Projectile) {
@@ -4345,7 +4480,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 				if (a.getDeniedPerms().contains("build")) {
 					e.setCancelled(true);
 					if (Math.random() < 0.1) {
-						p.sendMessage("§cYou can not build or break blocks here!");
+						p.sendMessage("Â§cYou can not build or break blocks here!");
 					}
 				}
 				return;
@@ -4354,7 +4489,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 				Towns t = town.getTownofChunk(c);
 				if (!t.hasChunkPermission(c, p, "build")) {
 					if (Math.random() < 0.1) {
-						p.sendMessage("§cYou can not build or break blocks here!");
+						p.sendMessage("Â§cYou can not build or break blocks here!");
 					}
 					e.setCancelled(true);
 					return;
@@ -4368,14 +4503,14 @@ public class Kirithia extends JavaPlugin implements Listener {
 				}
 				if (!kpl.isChunkFriend(c, p.getName())) {
 					if (!kpl.getDefaultPerms().contains("build")) {
-						p.sendMessage("§cYou can not build or break blocks here!");
+						p.sendMessage("Â§cYou can not build or break blocks here!");
 						e.setCancelled(true);
 
 					}
 					return;
 				}
 				if (!kpl.getFriendPerms().contains("build")) {
-					p.sendMessage("§cYou can not build or break blocks here!");
+					p.sendMessage("Â§cYou can not build or break blocks here!");
 					e.setCancelled(true);
 					return;
 
@@ -4390,10 +4525,10 @@ public class Kirithia extends JavaPlugin implements Listener {
 		if (b == null) {
 			return;
 		}
-		p = e.getPlayer();
-		if (p.isOp()) {
-			return;
-		}
+		Player p = e.getPlayer();
+		if (!p.isOp()) {
+			
+		
 		if (e.getAction().equals(Action.RIGHT_CLICK_AIR)
 				|| e.getAction().equals(Action.LEFT_CLICK_AIR)) {
 			return;
@@ -4408,7 +4543,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 		if (m.equals(Material.LEVER) || m.equals(Material.WOOD_BUTTON)
 				|| m.equals(Material.STONE_BUTTON)
-				|| m.equals(Material.WOOD_DOOR) 
+				|| m.equals(Material.WOOD_DOOR)
 				|| m.equals(Material.WOOD_PLATE)
 				|| m.equals(Material.STONE_PLATE)
 				|| m.equals(Material.IRON_PLATE)
@@ -4434,123 +4569,123 @@ public class Kirithia extends JavaPlugin implements Listener {
 				if (ch.getType(cs).equals("admin")) {
 					AdminTowns a = at.getTownbyName(c.getX() + "," + c.getZ());
 					List<String> denied = a.getDeniedPerms();
-					if (m.equals(Material.LEVER)){
-						if (denied.contains("lever")){
+					if (m.equals(Material.LEVER)) {
+						if (denied.contains("lever")) {
 							e.setCancelled(true);
-							p.sendMessage("§cYou can not use levers here!");
+							p.sendMessage("Â§cYou can not use levers here!");
 							return;
 						}
 					}
 					if (m.equals(Material.WOOD_BUTTON)
-							|| m.equals(Material.STONE_BUTTON)){
-						if (denied.contains("button")){
+							|| m.equals(Material.STONE_BUTTON)) {
+						if (denied.contains("button")) {
 							e.setCancelled(true);
-							p.sendMessage("§cYou can not use buttons here!");
+							p.sendMessage("Â§cYou can not use buttons here!");
 							return;
 						}
 					}
-					if (m.equals(Material.WOOD_DOOR)){
-						if (denied.contains("door")){
+					if (m.equals(Material.WOOD_DOOR)) {
+						if (denied.contains("door")) {
 							e.setCancelled(true);
-							p.sendMessage("§cYou can not use doors here!");
+							p.sendMessage("Â§cYou can not use doors here!");
 							return;
 						}
 					}
 					if (m.equals(Material.WOOD_PLATE)
 							|| m.equals(Material.STONE_PLATE)
 							|| m.equals(Material.IRON_PLATE)
-							|| m.equals(Material.GOLD_PLATE)){
+							|| m.equals(Material.GOLD_PLATE)) {
 						String l = b.getX() + "," + b.getY() + "," + b.getZ();
-						
+
 						if (!cannons.containsKey(l)) {
-							
-						
-						if (denied.contains("pressure")){
-							e.setCancelled(true);
-							p.sendMessage("§cYou can not use pressure plates here!");
-							return;
-						}
+
+							if (denied.contains("pressure")) {
+								e.setCancelled(true);
+								p.sendMessage("Â§cYou can not use pressure plates here!");
+								return;
+							}
 						}
 					}
 					if (m.equals(Material.TRIPWIRE)
-							|| m.equals(Material.TRIPWIRE_HOOK)){
-						if (denied.contains("tripwire")){
+							|| m.equals(Material.TRIPWIRE_HOOK)) {
+						if (denied.contains("tripwire")) {
 							e.setCancelled(true);
-							p.sendMessage("§cYou can not use tripwire here!");
+							p.sendMessage("Â§cYou can not use tripwire here!");
 							return;
 						}
 					}
 					if (m.equals(Material.DIODE_BLOCK_OFF)
 							|| m.equals(Material.DIODE_BLOCK_ON)
 							|| m.equals(Material.REDSTONE_COMPARATOR_OFF)
-							|| m.equals(Material.REDSTONE_COMPARATOR_ON)){
-						if (denied.contains("door")){
+							|| m.equals(Material.REDSTONE_COMPARATOR_ON)) {
+						if (denied.contains("door")) {
 							e.setCancelled(true);
-							p.sendMessage("§cYou can not alter repeaters here!");
+							p.sendMessage("Â§cYou can not alter repeaters here!");
 							return;
 						}
 					}
-					if (m.equals(Material.CHEST) || m.equals(Material.TRAPPED_CHEST)){
-						if (denied.contains("door")){
-							if (denied.contains("chestview")){
-							e.setCancelled(true);
-							p.sendMessage("§cYou can not access chests here!");
-							return;
-							}else{
-								//TODO chest view but not alter contents
+					if (m.equals(Material.CHEST)
+							|| m.equals(Material.TRAPPED_CHEST)) {
+						if (denied.contains("door")) {
+							if (denied.contains("chestview")) {
+								e.setCancelled(true);
+								p.sendMessage("Â§cYou can not access chests here!");
+								return;
+							} else {
+								// TODO chest view but not alter contents
 							}
 						}
 					}
-					if (m.equals(Material.FURNACE)){
-						if (denied.contains("door")){
+					if (m.equals(Material.FURNACE)) {
+						if (denied.contains("door")) {
 							e.setCancelled(true);
-							p.sendMessage("§cYou can not use furnaces here!");
+							p.sendMessage("Â§cYou can not use furnaces here!");
 							return;
 						}
 					}
 					if (m.equals(Material.HOPPER)
-							|| m.equals(Material.HOPPER_MINECART)){
-						if (denied.contains("door")){
+							|| m.equals(Material.HOPPER_MINECART)) {
+						if (denied.contains("door")) {
 							e.setCancelled(true);
-							p.sendMessage("§cYou can not use hoppers here!");
+							p.sendMessage("Â§cYou can not use hoppers here!");
 							return;
 						}
 					}
-					if (m.equals(Material.MINECART)){
-						if (denied.contains("door")){
+					if (m.equals(Material.MINECART)) {
+						if (denied.contains("door")) {
 							e.setCancelled(true);
-							p.sendMessage("§cYou can not use minecarts here!");
+							p.sendMessage("Â§cYou can not use minecarts here!");
 							return;
 						}
 					}
-					if (m.equals(Material.ENDER_CHEST)){
-						if (denied.contains("door")){
+					if (m.equals(Material.ENDER_CHEST)) {
+						if (denied.contains("door")) {
 							e.setCancelled(true);
-							p.sendMessage("§cYou can not access enderchests here!");
+							p.sendMessage("Â§cYou can not access enderchests here!");
 							return;
 						}
 					}
-					if (m.equals(Material.TRAP_DOOR)){
-						if (denied.contains("door")){
+					if (m.equals(Material.TRAP_DOOR)) {
+						if (denied.contains("door")) {
 							e.setCancelled(true);
-							p.sendMessage("§cYou can not use trap-doors here!");
+							p.sendMessage("Â§cYou can not use trap-doors here!");
 							return;
 						}
 					}
-					
+
 				}
 				if (ch.getType(cs).equals("town")) {
 					Towns t = town.getTownofChunk(c);
 					if (m.equals(Material.CHEST)) {
 						if (!t.hasChunkPermission(c, p, "chests")) {
-							p.sendMessage("§cYou can't use chests here!");
+							p.sendMessage("Â§cYou can't use chests here!");
 							e.setCancelled(true);
 							return;
 						}
 					}
 					if (!t.hasChunkPermission(c, p, "use")) {
 						if (Math.random() < 0.1) {
-							p.sendMessage("§cYou can't use this here!");
+							p.sendMessage("Â§cYou can't use this here!");
 						}
 						e.setCancelled(true);
 						return;
@@ -4565,28 +4700,28 @@ public class Kirithia extends JavaPlugin implements Listener {
 					if (m.equals(Material.CHEST)) {
 						if (!kpl.isChunkFriend(c, p.getName())) {
 							if (!kpl.getDefaultPerms().contains("chests")) {
-								p.sendMessage("§cYou can not use chests here!");
+								p.sendMessage("Â§cYou can not use chests here!");
 								e.setCancelled(true);
 
 							}
 							return;
 						}
 						if (!kpl.getFriendPerms().contains("chests")) {
-							p.sendMessage("§cYou can not use chests here!");
+							p.sendMessage("Â§cYou can not use chests here!");
 							e.setCancelled(true);
 							return;
 						}
 					}
 					if (!kpl.isChunkFriend(c, p.getName())) {
 						if (!kpl.getDefaultPerms().contains("use")) {
-							p.sendMessage("§cYou can not use this here!");
+							p.sendMessage("Â§cYou can not use this here!");
 							e.setCancelled(true);
 
 						}
 						return;
 					}
 					if (!kpl.getFriendPerms().contains("use")) {
-						p.sendMessage("§cYou can not use this here!");
+						p.sendMessage("Â§cYou can not use this here!");
 						e.setCancelled(true);
 						return;
 					}
@@ -4594,6 +4729,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 				return;
 			}
 		}
+	}
 
 		if (b.getType() == Material.STONE_PLATE) {
 			if (e.getPlayer().isOp()) {
@@ -4608,38 +4744,38 @@ public class Kirithia extends JavaPlugin implements Listener {
 			}
 
 			final String loc = b.getX() + "," + b.getY() + "," + b.getZ();
-			final Player p = e.getPlayer();
+			final Player pl = e.getPlayer();
 			if (cannons.containsKey(loc)) {
-				if (justfired.containsKey(p.getName())) {
-					if (justfired.get(p.getName()).contains(loc)) {
+				if (justfired.containsKey(pl.getName())) {
+					if (justfired.get(pl.getName()).contains(loc)) {
 						e.setCancelled(true);
 						return;
 					}
 				}
-				if (justfired.containsKey(p.getName())) {
+				if (justfired.containsKey(pl.getName())) {
 					List<String> ls = justfired.get(p.getName());
 					ls.add(loc);
-					justfired.put(p.getName(), ls);
+					justfired.put(pl.getName(), ls);
 				} else {
 					List<String> ls = new ArrayList<String>();
 					ls.add(loc);
-					justfired.put(p.getName(), ls);
+					justfired.put(pl.getName(), ls);
 				}
 				if (cannonpermreq.containsKey(loc)) {
-					if (!p.hasPermission(cannonpermreq.get(loc))) {
+					if (!pl.hasPermission(cannonpermreq.get(loc))) {
 						if (cannonmsg.containsKey(loc)) {
-							p.sendMessage(cannonmsg.get(loc));
+							pl.sendMessage(cannonmsg.get(loc));
 						}
 						Bukkit.getScheduler().scheduleSyncDelayedTask(this,
 								new Runnable() {
 									public void run() {
-										List<String> ls = justfired.get(p
+										List<String> ls = justfired.get(pl
 												.getName());
 										ls.remove(loc);
 										if (ls.isEmpty()) {
-											justfired.remove(p.getName());
+											justfired.remove(pl.getName());
 										} else {
-											justfired.put(p.getName(), ls);
+											justfired.put(pl.getName(), ls);
 										}
 									}
 								}, 100);
@@ -4651,12 +4787,12 @@ public class Kirithia extends JavaPlugin implements Listener {
 				Bukkit.getScheduler().scheduleSyncDelayedTask(this,
 						new Runnable() {
 							public void run() {
-								List<String> ls = justfired.get(p.getName());
+								List<String> ls = justfired.get(pl.getName());
 								ls.remove(loc);
 								if (ls.isEmpty()) {
-									justfired.remove(p.getName());
+									justfired.remove(pl.getName());
 								} else {
-									justfired.put(p.getName(), ls);
+									justfired.put(pl.getName(), ls);
 								}
 
 							}
@@ -4666,18 +4802,36 @@ public class Kirithia extends JavaPlugin implements Listener {
 				Bukkit.getScheduler().scheduleSyncDelayedTask(this,
 						new Runnable() {
 							public void run() {
-								p.setVelocity(v);
+								pl.setVelocity(v);
 							}
 						}, 1);
-				repeatvel(v, p, cannonsrep.get(loc));
-				p.getWorld().playSound(p.getLocation(), Sound.EXPLODE, 5, 1);
-				ParticleEffect.SMOKE.display(p.getLocation(), 0, 0, 0, 1, 20);
-				ParticleEffect.EXPLODE.display(p.getLocation(), 0, 0, 0, 1, 3);
+				repeatvel(v, pl, cannonsrep.get(loc));
+				p.getWorld().playSound(pl.getLocation(), Sound.EXPLODE, 5, 1);
+				ParticleEffect.SMOKE.display(pl.getLocation(), 0, 0, 0, 1, 20);
+				ParticleEffect.EXPLODE.display(pl.getLocation(), 0, 0, 0, 1, 3);
 
 				e.setCancelled(true);
 
 			}
 
+		}
+		if (creatingmine.contains(p.getName())){
+			if (e.getAction().equals(Action.RIGHT_CLICK_BLOCK)){
+				String loc = b.getLocation().getBlockX()+","+b.getLocation().getBlockY()+","+b.getLocation().getBlockZ();
+				settingpoints.put(p.getName()+"right", loc);
+				p.sendMessage("Â§aSet right click point to "+loc);
+				p.sendMessage("Â§aOnce both points are set, type Â§e/mine name <name>");
+				e.setCancelled(true);
+				return;
+			}
+			if (e.getAction().equals(Action.LEFT_CLICK_BLOCK)){
+				String loc = b.getLocation().getBlockX()+","+b.getLocation().getBlockY()+","+b.getLocation().getBlockZ();
+				settingpoints.put(p.getName()+"left", loc);
+				p.sendMessage("Â§aSet left click point to "+loc);
+				p.sendMessage("Â§aOnce both points are set, type Â§e/mine name <name>");
+				e.setCancelled(true);
+				return;
+			}
 		}
 
 	}
@@ -4786,7 +4940,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 						}
 						tel.getChunk().load();
 						p.teleport(tel);
-						p.sendMessage("§aYou successfully teleported to "
+						p.sendMessage("Â§aYou successfully teleported to "
 								+ dest + "!");
 						spellcds.put(p.getName() + "home",
 								System.currentTimeMillis()
@@ -4794,7 +4948,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 												.getHomeCDTime() * 1000));
 					}
 				} else {
-					p.sendMessage("§cSpell cancelled.");
+					p.sendMessage("Â§cSpell cancelled.");
 					try {
 						casting.remove(p);
 					} catch (Exception e) {
@@ -4941,29 +5095,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 		return loc;
 	}
 
-	@EventHandler
-	public void onLogin(PlayerJoinEvent e) {
-		p = e.getPlayer();
-		if (!allplayers.contains(p.getName().toLowerCase())) {
-			kp.create(p.getName());
-			allplayers.add(p.getName().toLowerCase());
-			return;
-		}
-		if (!playerstoupdate.contains(p.getName()))
-			playerstoupdate.add(p.getName());
-		KPlayer kpl = kp.KP(p.getName());
-		kpl.setOnline(true);
-		// TODO initialise attributes from inventory and armour
-	}
 
-	@EventHandler
-	public void onLeave(PlayerQuitEvent e) {
-		p = e.getPlayer();
-		KPlayer kpl = kp.KP(p.getName());
-		kpl.setOnline(false);
-		// TODO ^^nothing??
-
-	}
 
 	@EventHandler
 	public void stopDragonDamage(EntityExplodeEvent event) // Listen for the
@@ -4974,7 +5106,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 	@EventHandler
 	public void onBlockplace(BlockPlaceEvent e) {
-		p = e.getPlayer();
+		Player p = e.getPlayer();
 		if (p.isOp()) {
 			return;
 		}
@@ -4984,16 +5116,21 @@ public class Kirithia extends JavaPlugin implements Listener {
 		if (ch.getType(cs).equals("wild")) {
 			e.setCancelled(true);
 			if (Math.random() < 0.1) {
-				p.sendMessage("§cYou can only build in claimed chunks!");
+				p.sendMessage("Â§cYou can only build in claimed chunks!");
 			}
 			return;
 		}
 		if (ch.getType(cs).equals("admin")) {
+			for (String name : minenames){
+				if (isInside(e.getBlock().getLocation(), minepoints.get(name+"1"), minepoints.get(name+"2"))){
+					return;
+				}
+			}
 			AdminTowns a = at.getTownbyName(c.getX() + "," + c.getZ());
 			if (a.getDeniedPerms().contains("build")) {
 				e.setCancelled(true);
 				if (Math.random() < 0.1) {
-					p.sendMessage("§cYou can not build or break blocks here!");
+					p.sendMessage("Â§cYou can not build or break blocks here!");
 				}
 			}
 			return;
@@ -5002,7 +5139,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 			Towns t = town.getTownofChunk(c);
 			if (!t.hasChunkPermission(c, p, "build")) {
 				if (Math.random() < 0.1) {
-					p.sendMessage("§cYou can not build or break blocks here!");
+					p.sendMessage("Â§cYou can not build or break blocks here!");
 				}
 				e.setCancelled(true);
 				return;
@@ -5017,7 +5154,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 			if (!kpl.isChunkFriend(c, p.getName())) {
 				if (!kpl.getDefaultPerms().contains("build")) {
 					if (Math.random() < 0.1) {
-						p.sendMessage("§cYou can not build or break blocks here!");
+						p.sendMessage("Â§cYou can not build or break blocks here!");
 					}
 					e.setCancelled(true);
 
@@ -5026,7 +5163,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 			}
 			if (!kpl.getFriendPerms().contains("build")) {
 				if (Math.random() < 0.1) {
-					p.sendMessage("§cYou can not build or break blocks here!");
+					p.sendMessage("Â§cYou can not build or break blocks here!");
 				}
 				e.setCancelled(true);
 				return;
@@ -5037,7 +5174,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 	@EventHandler
 	public void onBlockbreak(BlockBreakEvent e) {
-		p = e.getPlayer();
+		Player p = e.getPlayer();
 		if (p.isOp()) {
 			return;
 		}
@@ -5072,17 +5209,22 @@ public class Kirithia extends JavaPlugin implements Listener {
 					&& !bt.equals(Material.YELLOW_FLOWER)) {
 				e.setCancelled(true);
 				if (Math.random() < 0.1) {
-					p.sendMessage("§cYou can only break plants, logs, wood, leaves and ores in the Wild!");
+					p.sendMessage("Â§cYou can only break plants, logs, wood, leaves and ores in the Wild!");
 				}
 			}
 			return;
 		}
 		if (ch.getType(cs).equals("admin")) {
+			for (String name : minenames){
+				if (isInside(e.getBlock().getLocation(), minepoints.get(name+"1"), minepoints.get(name+"2"))){
+					return;
+				}
+			}
 			AdminTowns a = at.getTownbyName(c.getX() + "," + c.getZ());
 			if (a.getDeniedPerms().contains("build")) {
 				e.setCancelled(true);
 				if (Math.random() < 0.1) {
-					p.sendMessage("§cYou can not build or break blocks here!");
+					p.sendMessage("Â§cYou can not build or break blocks here!");
 				}
 			}
 			return;
@@ -5091,7 +5233,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 			Towns t = town.getTownofChunk(c);
 			if (!t.hasChunkPermission(c, p, "build")) {
 				if (Math.random() < 0.1) {
-					p.sendMessage("§cYou can not build or break blocks here!");
+					p.sendMessage("Â§cYou can not build or break blocks here!");
 				}
 				e.setCancelled(true);
 				return;
@@ -5106,7 +5248,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 			if (!kpl.isChunkFriend(c, p.getName())) {
 				if (!kpl.getDefaultPerms().contains("build")) {
 					if (Math.random() < 0.1) {
-						p.sendMessage("§cYou can not build or break blocks here!");
+						p.sendMessage("Â§cYou can not build or break blocks here!");
 					}
 					e.setCancelled(true);
 
@@ -5115,7 +5257,7 @@ public class Kirithia extends JavaPlugin implements Listener {
 			}
 			if (!kpl.getFriendPerms().contains("build")) {
 				if (Math.random() < 0.1) {
-					p.sendMessage("§cYou can not build or break blocks here!");
+					p.sendMessage("Â§cYou can not build or break blocks here!");
 				}
 				e.setCancelled(true);
 				return;
@@ -5130,8 +5272,9 @@ public class Kirithia extends JavaPlugin implements Listener {
 	}
 
 	@EventHandler
-	public void fireDamageControl(BlockSpreadEvent event) {
-		if (event.getNewState().getType() == Material.FIRE) {
+	public void fireDamageControl(BlockIgniteEvent event) {
+		if (!event.getCause().equals(IgniteCause.FLINT_AND_STEEL)){
+		//if (event.getNewState().getType() == Material.FIRE) {
 			if (ch.getType(
 					event.getBlock().getLocation().getChunk()
 							.getChunkSnapshot()).equals("wild")) {
@@ -5143,6 +5286,18 @@ public class Kirithia extends JavaPlugin implements Listener {
 		}
 	}
 
+	@EventHandler
+	public void fireDamageControl(BlockBurnEvent event) {
+		if (ch.getType(
+				event.getBlock().getLocation().getChunk()
+						.getChunkSnapshot()).equals("wild")) {
+			if (Math.random() < 0.7)
+				event.setCancelled(true);
+		}else{
+			event.setCancelled(true);
+		}
+	}
+	
 	public void repeatingClaim(final int side, final Chunk c,
 			final AdminTowns a, final int unclaimed, final Player p, final int i) {
 		Bukkit.getScheduler().scheduleSyncDelayedTask(this, new Runnable() {
@@ -5169,17 +5324,303 @@ public class Kirithia extends JavaPlugin implements Listener {
 
 					repeatingClaim(side, cc, as, uc, p, g);
 				} else {
-					p.sendMessage("§aClaimed §e"
+					p.sendMessage("Â§aClaimed Â§e"
 							+ (Math.pow(side, 2) - unclaimed)
-							+ " §achunks for the admin town:" + a.getName());
-					p.sendMessage("§c"
+							+ " Â§achunks for the admin town:" + a.getName());
+					p.sendMessage("Â§c"
 							+ unclaimed
-							+ " §cchunks were already claimed in some way or another.");
+							+ " Â§cchunks were already claimed in some way or another.");
 				}
 			}
 
 		}, 2);
 
+	}
+
+	public String IStoString(List<ItemStack> ilist, ItemStack i) {
+		String alltostring = "";
+		if (ilist != null) {
+			for (ItemStack is : ilist) {
+				if (is != null) {
+					if (is.hasItemMeta()) {
+						alltostring = alltostring
+								+ is.getItemMeta().getLore().toString();
+					}
+				}
+			}
+		}
+		if (i != null) {
+			if (i.hasItemMeta()) {
+				alltostring = alltostring
+						+ i.getItemMeta().getLore().toString();
+			}
+		}
+		return alltostring;
+	}
+	
+	public String fromPInv(PlayerInventory PI){
+		List<ItemStack> li = new ArrayList<ItemStack>();
+		li.add(PI.getBoots());
+		li.add(PI.getHelmet());
+		li.add(PI.getChestplate());
+		li.add(PI.getLeggings());
+		return IStoString(li, null);
+	}
+
+	public void setAttAsync(final String alltostring, final KPlayer kpl) {
+		Bukkit.getScheduler().runTaskAsynchronously(this, new Runnable() {
+			public void run() {
+				String alts = alltostring.replace("+", "#");
+				while (alts.contains("Â§")) {
+					int index = alts.indexOf("Â§");
+					String sub1 = alts.substring(index + 2);
+					String sub2 = alts.substring(0, index);
+					alts = sub2 + sub1;
+				}
+				Pattern strp = Pattern.compile("(Strength #)(\\d+)");
+				Matcher strm = strp.matcher(alts);
+				Pattern precp = Pattern.compile("(Precision #)(\\d+)");
+				Matcher precm = precp.matcher(alts);
+				// Pattern wisp = Pattern.compile("(Wisdom #)(\\d+)");
+				// Matcher wism = wisp.matcher(all);
+				// Pattern intp = Pattern.compile("(Intellect #)(\\d+)");
+				// Matcher intm = intp.matcher(all); TODO add spell attributes.
+				Pattern agip = Pattern.compile("(Agility #)(\\d+)");
+				Matcher agim = agip.matcher(alts);
+				Pattern hpp = Pattern.compile("(Health #)(\\d+)");
+				Matcher hpm = hpp.matcher(alts);
+				Pattern stap = Pattern.compile("(Stamina #)(\\d+)");
+				Matcher stam = stap.matcher(alts);
+				Pattern armp = Pattern.compile("(Armour: )(\\d+)");
+				Matcher armm = armp.matcher(alts);
+				int Strength = 0;
+				int Agility = 0;
+				int Precision = 0;
+				int Health = 0;
+				int Stamina = 0;
+				int Armour = 0;
+				while (strm.find()) {
+					int total1 = Integer.parseInt(strm.group(2));
+					Strength = Strength + total1;
+				}
+
+				while (precm.find()) {
+					int total2 = Integer.parseInt(precm.group(2));
+					Precision = Precision + total2;
+				}
+
+				// while (wism.find()) {
+				// int total3 = Integer.parseInt(wism.group(2));
+				// finaltotal3 = total3 + finaltotal3;
+				// }
+
+				// while (intm.find()) {
+				// int total4 = Integer.parseInt(intm.group(2));
+				// finaltotal4 = total4 + finaltotal4;
+				// }
+
+				while (agim.find()) {
+					int total5 = Integer.parseInt(agim.group(2));
+					Agility = Agility + total5;
+				}
+				while (hpm.find()) {
+					int total6 = Integer.parseInt(hpm.group(2));
+					Health = Health + total6;
+				}
+				while (stam.find()) {
+					int total7 = Integer.parseInt(stam.group(2));
+					Stamina = Stamina + total7;
+				}
+				while (armm.find()) {
+					int total8 = Integer.parseInt(armm.group(2));
+					Armour = Armour + total8;
+				}
+				kpl.setAgi(Agility);
+				kpl.setArmour(Armour);
+				kpl.setStam(Stamina);
+				kpl.setHealth(Health);
+				kpl.setPrec(Precision);
+				kpl.setStr(Strength);
+			}
+
+		});
+
+	}
+
+	public Map<String, Integer> getAttributes(List<ItemStack> ilist, ItemStack i) {
+		Map<String, Integer> ret = new HashMap<String, Integer>();
+		String alltostring = "";
+		if (ilist != null) {
+			for (ItemStack is : ilist) {
+				if (is != null) {
+					if (is.hasItemMeta()) {
+						alltostring = alltostring
+								+ is.getItemMeta().getLore().toString();
+					}
+				}
+			}
+		}
+		if (i != null) {
+			if (i.hasItemMeta()) {
+				alltostring = alltostring
+						+ i.getItemMeta().getLore().toString();
+			}
+		}
+		if (alltostring.equals("")) {
+			return ret;
+		}
+		alltostring.replace("+", "#");
+		Pattern strp = Pattern.compile("(Strength #)(\\d+)");
+		Matcher strm = strp.matcher(alltostring);
+		Pattern precp = Pattern.compile("(Precision #)(\\d+)");
+		Matcher precm = precp.matcher(alltostring);
+		// Pattern wisp = Pattern.compile("(Wisdom #)(\\d+)");
+		// Matcher wism = wisp.matcher(all);
+		// Pattern intp = Pattern.compile("(Intellect #)(\\d+)");
+		// Matcher intm = intp.matcher(all); TODO add spell attributes.
+		Pattern agip = Pattern.compile("(Agility #)(\\d+)");
+		Matcher agim = agip.matcher(alltostring);
+		Pattern hpp = Pattern.compile("(Health #)(\\d+)");
+		Matcher hpm = hpp.matcher(alltostring);
+		Pattern stap = Pattern.compile("(Stamina #)(\\d+)");
+		Matcher stam = stap.matcher(alltostring);
+		Pattern armp = Pattern.compile("(Armour: )(\\d+)");
+		Matcher armm = armp.matcher(alltostring);
+		int Strength = 0;
+		int Agility = 0;
+		int Precision = 0;
+		int Health = 0;
+		int Stamina = 0;
+		int Armour = 0;
+		while (strm.find()) {
+			int total1 = Integer.parseInt(strm.group(2));
+			Strength = Strength + total1;
+		}
+
+		while (precm.find()) {
+			int total2 = Integer.parseInt(precm.group(2));
+			Precision = Precision + total2;
+		}
+
+		// while (wism.find()) {
+		// int total3 = Integer.parseInt(wism.group(2));
+		// finaltotal3 = total3 + finaltotal3;
+		// }
+
+		// while (intm.find()) {
+		// int total4 = Integer.parseInt(intm.group(2));
+		// finaltotal4 = total4 + finaltotal4;
+		// }
+
+		while (agim.find()) {
+			int total5 = Integer.parseInt(agim.group(2));
+			Agility = Agility + total5;
+		}
+		while (hpm.find()) {
+			int total6 = Integer.parseInt(hpm.group(2));
+			Health = Health + total6;
+		}
+		while (stam.find()) {
+			int total7 = Integer.parseInt(stam.group(2));
+			Stamina = Stamina + total7;
+		}
+		while (armm.find()) {
+			int total8 = Integer.parseInt(armm.group(2));
+			Armour = Armour + total8;
+		}
+		ret.put("Strength", Strength);
+		ret.put("Agility", Agility);
+		ret.put("Precision", Precision);
+		ret.put("Health", Health);
+		ret.put("Stamina", Stamina);
+		ret.put("Armour", Armour);
+		return ret;
+	}
+
+	@EventHandler
+	public void closeInv(InventoryCloseEvent e) {
+		final Player pl = (Player) e.getPlayer();
+		KPlayer kpl = kp.KP(pl.getName());
+		setAttAsync(fromPInv(pl.getInventory()),kpl);
+		Bukkit.getScheduler().runTaskLater(this, new Runnable(){
+			public void run(){
+				pl.setMaxHealth(kp.KP(pl.getName()).getActualHP());
+			}
+		}, 5);
+	}
+	
+	@EventHandler
+	public void onLogout(PlayerQuitEvent e) {
+		if (usingadminchat.contains(e.getPlayer().getName())) {
+			usingadminchat.remove(e.getPlayer().getName());
+		}
+		if (usingtownchat.contains(e.getPlayer().getName())) {
+			usingtownchat.remove(e.getPlayer().getName());
+		}
+		Player p = e.getPlayer();
+		KPlayer kpl = kp.KP(p.getName());
+		kpl.setOnline(false);
+	}
+	
+	@EventHandler
+	public void onLogin(PlayerJoinEvent e) {
+		final Player p = e.getPlayer();
+		if (!allplayers.contains(p.getName().toLowerCase())) {
+			kp.create(p.getName());
+			allplayers.add(p.getName().toLowerCase());
+			
+			return;
+		}
+		if (!playerstoupdate.contains(p.getName()))
+			playerstoupdate.add(p.getName());
+		KPlayer kpl = kp.KP(p.getName());
+		kpl.setOnline(true);
+		setAttAsync(fromPInv(p.getInventory()),kpl);
+		Bukkit.getScheduler().runTaskLater(this, new Runnable(){
+			public void run(){
+				p.setMaxHealth(kp.KP(p.getName()).getActualHP());
+			}
+		}, 5);
+	}
+	
+	public void particleCircle(Player p, double height, ParticleEffect pe, double radius, double amount, int repeat, int offsetX, int offsetY, int offsetZ, int count, int speed){
+		Location loc = p.getLocation();
+		loc = loc.add(0, height, 0);
+		pe.display(loc, offsetX, offsetY, offsetZ, speed, count);
+		double angleinc = 360/amount;
+		for (int i =1; i<=amount; i++){
+			Location l = new Location(p.getWorld(), (radius*Math.cos(Math.toRadians(angleinc*i)))+loc.getX(), loc.getY(), loc.getZ()+(radius*Math.sin(Math.toRadians(angleinc*i))));
+			pe.display(l, offsetX, offsetY, offsetZ, speed, count);
+		}
+	}
+	
+	
+    public static Boolean isInside(Location loc, Location corner1, Location corner2) {
+        double xMin = 0;
+        double xMax = 0;
+        double yMin = 0;
+        double yMax = 0;
+        double zMin = 0;
+        double zMax = 0;
+        double x = loc.getX();
+        double y = loc.getY();
+        double z = loc.getZ();
+ 
+        xMin = Math.min(corner1.getX(), corner2.getX());
+        xMax = Math.max(corner1.getX(), corner2.getX());
+ 
+        yMin = Math.min(corner1.getY(), corner2.getY());
+        yMax = Math.max(corner1.getY(), corner2.getY());
+ 
+        zMin = Math.min(corner1.getZ(), corner2.getZ());
+        zMax = Math.max(corner1.getZ(), corner2.getZ());
+ 
+        return (x >= xMin && x <= xMax && y >= yMin && y <= yMax && z >= zMin && z <= zMax);
+    }
+	
+	@EventHandler
+	public void regen(EntityRegainHealthEvent e) {
+		//
 	}
 
 	public Chunks getChunkClass() {
