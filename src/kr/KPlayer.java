@@ -27,6 +27,8 @@ public class KPlayer {
 	int defence = 1;
 	int xp = 0;
 	int maxchunks = 3;
+	int basehp = 60;
+	int mana = 100;
 
 	// temporary variables
 	int strength = 0;
@@ -35,6 +37,9 @@ public class KPlayer {
 	int agility = 0;
 	int precision = 0;
 	int armour = 0;
+
+	int actualhp = 60;
+	
 	boolean trading = false;
 	boolean online = false;
 	KPlayer trader;
@@ -191,6 +196,18 @@ public class KPlayer {
 		return lastlogin;
 	}
 
+	public void setBaseHP(int hp){
+		basehp = hp;
+	}
+	
+	public int getBaseHP(){
+	return basehp;
+	}
+	
+	public int getActualHP(){
+		return (basehp+health)/5;
+	}
+	
 	public void setMelee(int melee) {
 		this.melee = melee;
 	}
@@ -283,6 +300,31 @@ public class KPlayer {
 
 	public int getXP() {
 		return xp;
+	}
+	
+	public double getXPtoALevel(double lev){
+		return Math.round((Math.pow((lev), 2.3742912))*60);
+	}
+	
+	public double getXPFromALeveltoALevel(double lev1, double lev2){
+		return (Math.round((Math.pow((lev2), 2.3742912))*60)-Math.round((Math.pow((lev1), 2.3742912))*60));
+	}
+	
+	public double getXPtoNextLevel(){
+		return (Math.round((Math.pow((level+1), 2.3742912))*60)-xp);
+	}
+	
+	public long getXPBarValue(){
+		return (long) (xp/getXPFromALeveltoALevel(level, level+1));
+	}
+	
+	public boolean addXP(int xp){
+		this.xp = xp+this.xp;
+		if (this.xp>Math.round((Math.pow((level+1), 2.3742912))*60)){
+			level = level + 1;
+			return true;
+		}
+		return false;
 	}
 
 	public void addRep(int rep) {
