@@ -5583,6 +5583,18 @@ public class Kirithia extends JavaPlugin implements Listener {
 		}, 5);
 	}
 	
+	public void repeatPlayParticles(List<Location>)
+	
+	
+	public void particleHelix(){
+	
+	}
+	
+	
+	public void particleFloor(){
+		
+	}
+	
 	public void particleCircle(Player p, double height, ParticleEffect pe, double radius, double amount, int repeat, int offsetX, int offsetY, int offsetZ, int count, int speed){
 		Location loc = p.getLocation();
 		loc = loc.add(0, height, 0);
